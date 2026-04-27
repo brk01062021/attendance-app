@@ -35,6 +35,8 @@ public class AuthController {
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
+        user.setTeacherId(request.getTeacherId());
+        user.setTeacherName(request.getTeacherName());
 
         userRepository.save(user);
 
@@ -43,6 +45,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public AuthResponse login(@RequestBody LoginRequest request) {
+
         AppUser user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("Invalid username or password"));
 
@@ -51,6 +54,11 @@ public class AuthController {
         }
 
         String token = jwtUtil.generateToken(user.getUsername(), user.getRole());
-        return new AuthResponse(token);
+
+        return new AuthResponse(
+                token,
+                user.getTeacherId(),
+                user.getTeacherName()
+        );
     }
 }

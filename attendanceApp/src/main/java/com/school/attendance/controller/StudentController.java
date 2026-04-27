@@ -29,6 +29,15 @@ public class StudentController {
 
         return repository.findByClassNameAndSection(className, section);
     }
+    @GetMapping("/classes")
+    public List<String> getClasses() {
+        return repository.findDistinctClassNames();
+    }
+
+    @GetMapping("/sections")
+    public List<String> getSectionsByClassName(@RequestParam String className) {
+        return repository.findDistinctSectionsByClassName(className);
+    }
 
     @PostMapping("/bulk")
     public List<Student> addStudents(@RequestBody List<Student> students) {
