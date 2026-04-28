@@ -87,11 +87,23 @@ public class AttendanceController {
                 .orElseThrow(() -> new RuntimeException("Student not found with id: " + request.getStudentId()));
 
         Attendance attendance = attendanceRepository
-                .findByStudentIdAndAttendanceDate(request.getStudentId(), request.getAttendanceDate())
+                .findByStudentIdAndAttendanceDateAndTeacherIdAndSubjectNameAndClassNameAndSection(
+                        request.getStudentId(),
+                        request.getAttendanceDate(),
+                        request.getTeacherId(),
+                        request.getSubjectName(),
+                        request.getClassName(),
+                        request.getSection()
+                )
                 .orElse(new Attendance());
 
         attendance.setStudent(student);
         attendance.setAttendanceDate(request.getAttendanceDate());
+        attendance.setTeacherId(request.getTeacherId());
+        attendance.setTeacherName(request.getTeacherName());
+        attendance.setSubjectName(request.getSubjectName());
+        attendance.setClassName(request.getClassName());
+        attendance.setSection(request.getSection());
         AttendanceStatus status;
         try {
             status = AttendanceStatus.valueOf(request.getStatus().toUpperCase());
@@ -113,12 +125,24 @@ public class AttendanceController {
                     .orElseThrow(() -> new RuntimeException("Student not found with id: " + item.getStudentId()));
 
             Attendance attendance = attendanceRepository
-                    .findByStudentIdAndAttendanceDate(item.getStudentId(), item.getAttendanceDate())
+                    .findByStudentIdAndAttendanceDateAndTeacherIdAndSubjectNameAndClassNameAndSection(
+                            item.getStudentId(),
+                            item.getAttendanceDate(),
+                            item.getTeacherId(),
+                            item.getSubjectName(),
+                            item.getClassName(),
+                            item.getSection()
+                    )
                     .orElse(new Attendance());
 
             AttendanceStatus status = AttendanceStatus.valueOf(item.getStatus().toUpperCase());
 
             attendance.setStudent(student);
+            attendance.setTeacherId(item.getTeacherId());
+            attendance.setTeacherName(item.getTeacherName());
+            attendance.setSubjectName(item.getSubjectName());
+            attendance.setClassName(item.getClassName());
+            attendance.setSection(item.getSection());
             attendance.setAttendanceDate(item.getAttendanceDate());
             attendance.setStatus(status);
 
