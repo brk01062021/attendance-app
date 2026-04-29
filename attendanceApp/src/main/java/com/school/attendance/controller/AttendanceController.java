@@ -5,6 +5,7 @@ import com.school.attendance.dto.AttendanceReportDTO;
 import com.school.attendance.dto.ClassDashboardDTO;
 import com.school.attendance.dto.TeacherWiseDashboardDTO;
 import com.school.attendance.dto.SubjectDashboardDTO;
+import com.school.attendance.dto.TeacherClassDashboardDTO;
 import com.school.attendance.dto.DateRangeDashboardDTO;
 import com.school.attendance.dto.AttendanceRequest;
 import com.school.attendance.dto.BulkAttendanceRequest;
@@ -638,6 +639,73 @@ public class AttendanceController {
         }
 
         result.sort((a, b) -> a.getDate().compareTo(b.getDate()));
+
+        return result;
+    }
+    @GetMapping("/dashboard/teacher/classes")
+    public List<TeacherClassDashboardDTO> getTeacherClassDashboard(
+            @RequestParam Long teacherId,
+            @RequestParam String date
+    ) {
+        LocalDate attendanceDate = LocalDate.parse(date);
+
+        List<Attendance> records =
+                attendanceRepository.findByTeacherIdAndAttendanceDate(
+                        teacherId,
+                        attendanceDate
+                );
+
+        Map<String, List<Attendance>> grouped = new HashMap<>();
+
+        for (Attendance attendance : records) {
+            String key = attendance.getClassName()
+                    + "-"
+                    + attendance.getSection()
+                    + "-"
+                    + attendance.getSubjectName();
+
+            grouped.computeIfAbsent(key, k -> new ArrayList<>())
+                    .add(attendance);
+        }
+
+        List<TeacherClassDashboardDTO> result = new ArrayList<>();
+
+        for (List<Attendance> classRecords : grouped.values()) {
+            String className = classRecords.get(0).getClassName();
+            String section = classRecords.get(0).getSection();
+            String subjectName = classRecords.get(0).getSubjectName();
+
+            long totalStudents = classRecords.size();
+
+            long present = classRecords.stream()
+                    .filter(a -> a.getStatus() == AttendanceStatus.PRESENT)
+                    .count();
+
+            long absent = classRecords.stream()
+                    .filter(a -> a.getStatus() == AttendanceStatus.ABSENT)
+                    .count();
+
+            long late = classRecords.stream()
+                    .filter(a -> a.getStatus() == AttendanceStatus.LATE)
+                    .count();
+
+            long attended = present + late;
+
+            double percentage =
+                    totalStudents == 0 ? 0 :
+                            ((double) attended / totalStudents) * 100;
+
+            result.add(new TeacherClassDashboardDTO(
+                    className,
+                    section,
+                    subjectName,
+                    totalStudents,
+                    present,
+                    absent,
+                    late,
+                    percentage
+            ));
+        }
 
         return result;
     }
