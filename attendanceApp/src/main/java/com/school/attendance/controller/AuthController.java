@@ -45,7 +45,6 @@ public class AuthController {
 
     @PostMapping("/login")
     public AuthResponse login(@RequestBody LoginRequest request) {
-
         AppUser user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("Invalid username or password"));
 
@@ -58,7 +57,8 @@ public class AuthController {
         return new AuthResponse(
                 token,
                 user.getTeacherId(),
-                user.getTeacherName()
+                user.getTeacherName(),
+                user.getRole()
         );
     }
 }

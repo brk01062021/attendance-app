@@ -2,47 +2,47 @@ package com.school.attendance.dto;
 
 public class AdminDashboardDTO {
 
-    private String date;
-    private long totalRecords;
-    private long present;
-    private long absent;
-    private long late;
+    private String attendanceDate;
+    private long totalStudents;
+    private long presentStudents;
+    private long absentStudents;
+    private long lateStudents;
     private double attendancePercentage;
 
     public AdminDashboardDTO(
-            String date,
-            long totalRecords,
-            long present,
-            long absent,
-            long late,
+            String attendanceDate,
+            long totalStudents,
+            long presentStudents,
+            long absentStudents,
+            long lateStudents,
             double attendancePercentage
     ) {
-        this.date = date;
-        this.totalRecords = totalRecords;
-        this.present = present;
-        this.absent = absent;
-        this.late = late;
+        this.attendanceDate = attendanceDate;
+        this.totalStudents = totalStudents;
+        this.presentStudents = presentStudents;
+        this.absentStudents = absentStudents;
+        this.lateStudents = lateStudents;
         this.attendancePercentage = attendancePercentage;
     }
 
-    public String getDate() {
-        return date;
+    public String getAttendanceDate() {
+        return attendanceDate;
     }
 
-    public long getTotalRecords() {
-        return totalRecords;
+    public long getTotalStudents() {
+        return totalStudents;
     }
 
-    public long getPresent() {
-        return present;
+    public long getPresentStudents() {
+        return presentStudents;
     }
 
-    public long getAbsent() {
-        return absent;
+    public long getAbsentStudents() {
+        return absentStudents;
     }
 
-    public long getLate() {
-        return late;
+    public long getLateStudents() {
+        return lateStudents;
     }
 
     public double getAttendancePercentage() {

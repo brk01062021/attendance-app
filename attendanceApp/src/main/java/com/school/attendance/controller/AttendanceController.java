@@ -63,14 +63,14 @@ public class AttendanceController {
         return attendanceRepository.findAll();
     }
 
-    @GetMapping("/dashboard/admin")
+    @GetMapping({"/dashboard", "/dashboard/admin"})
     public AdminDashboardDTO getAdminDashboard(@RequestParam String date) {
         LocalDate attendanceDate = LocalDate.parse(date);
 
         List<Attendance> records =
                 attendanceRepository.findByAttendanceDate(attendanceDate);
 
-        long totalRecords = records.size();
+        long totalStudents = studentRepository.count();
 
         long present = records.stream()
                 .filter(a -> a.getStatus() == AttendanceStatus.PRESENT)
@@ -87,12 +87,12 @@ public class AttendanceController {
         long attended = present + late;
 
         double percentage =
-                totalRecords == 0 ? 0 :
-                        ((double) attended / totalRecords) * 100;
+                totalStudents == 0 ? 0 :
+                        ((double) attended / totalStudents) * 100;
 
         return new AdminDashboardDTO(
                 date,
-                totalRecords,
+                totalStudents,
                 present,
                 absent,
                 late,
@@ -414,6 +414,7 @@ public class AttendanceController {
 
         return report;
     }
+
     @GetMapping("/dashboard/admin/classes")
     public List<ClassDashboardDTO> getAdminClassDashboard(
             @RequestParam String date
@@ -471,6 +472,7 @@ public class AttendanceController {
 
         return result;
     }
+
     @GetMapping("/dashboard/admin/teachers")
     public List<TeacherWiseDashboardDTO> getAdminTeacherDashboard(
             @RequestParam String date
@@ -528,6 +530,7 @@ public class AttendanceController {
 
         return result;
     }
+
     @GetMapping("/dashboard/admin/subjects")
     public List<SubjectDashboardDTO> getAdminSubjectDashboard(
             @RequestParam String date
@@ -583,6 +586,7 @@ public class AttendanceController {
 
         return result;
     }
+
     @GetMapping("/dashboard/admin/date-range")
     public List<DateRangeDashboardDTO> getAdminDateRangeDashboard(
             @RequestParam String startDate,
@@ -642,6 +646,7 @@ public class AttendanceController {
 
         return result;
     }
+
     @GetMapping("/dashboard/teacher/classes")
     public List<TeacherClassDashboardDTO> getTeacherClassDashboard(
             @RequestParam Long teacherId,
