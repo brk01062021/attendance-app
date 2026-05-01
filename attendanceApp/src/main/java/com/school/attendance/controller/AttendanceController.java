@@ -6,6 +6,7 @@ import com.school.attendance.dto.ClassDashboardDTO;
 import com.school.attendance.dto.TeacherWiseDashboardDTO;
 import com.school.attendance.dto.SubjectDashboardDTO;
 import com.school.attendance.dto.TeacherClassDashboardDTO;
+import com.school.attendance.dto.AdminStudentAttendanceDTO;
 import com.school.attendance.dto.DateRangeDashboardDTO;
 import com.school.attendance.dto.AttendanceRequest;
 import com.school.attendance.dto.BulkAttendanceRequest;
@@ -713,5 +714,53 @@ public class AttendanceController {
         }
 
         return result;
+    }
+
+    @GetMapping("/dashboard/admin/students")
+    public List<AdminStudentAttendanceDTO> getAdminStudentAttendance(
+            @RequestParam(required = false) String className,
+            @RequestParam(required = false) String section,
+            @RequestParam(required = false) String subjectName,
+            @RequestParam(required = false) String date
+    ) {
+        List<Attendance> records = attendanceRepository.findAll();
+
+        if (className != null && !className.isBlank()) {
+            records = records.stream()
+                    .filter(a -> className.equals(a.getClassName()))
+                    .toList();
+        }
+
+        if (section != null && !section.isBlank()) {
+            records = records.stream()
+                    .filter(a -> section.equals(a.getSection()))
+                    .toList();
+        }
+
+        if (subjectName != null && !subjectName.isBlank()) {
+            records = records.stream()
+                    .filter(a -> subjectName.equals(a.getSubjectName()))
+                    .toList();
+        }
+
+        if (date != null && !date.isBlank()) {
+            LocalDate attendanceDate = LocalDate.parse(date);
+
+            records = records.stream()
+                    .filter(a -> attendanceDate.equals(a.getAttendanceDate()))
+                    .toList();
+        }
+
+        return records.stream()
+                .map(a -> new AdminStudentAttendanceDTO(
+                        a.getStudent().getId(),
+                        a.getStudent().getName(),
+                        a.getClassName(),
+                        a.getSection(),
+                        a.getSubjectName(),
+                        a.getStatus().name(),
+                        a.getAttendanceDate()
+                ))
+                .toList();
     }
 }

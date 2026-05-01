@@ -1,5 +1,6 @@
 package com.school.attendance.repository;
 
+import com.school.attendance.dto.ReplacementTeacherDTO;
 import com.school.attendance.entity.TeacherAssignment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -16,4 +17,19 @@ public interface TeacherAssignmentRepository extends JpaRepository<TeacherAssign
 
     @Query("SELECT DISTINCT t.section FROM TeacherAssignment t WHERE t.teacherId = :teacherId AND t.subjectName = :subjectName AND t.className = :className ORDER BY t.section")
     List<String> findSectionsByTeacherIdSubjectNameAndClassName(Long teacherId, String subjectName, String className);
+
+    @Query("""
+        SELECT new com.school.attendance.dto.ReplacementTeacherDTO(
+            t.teacherId,
+            t.teacherName,
+            t.className,
+            t.section,
+            t.subjectName,
+            ''
+        )
+        FROM TeacherAssignment t
+        WHERE t.teacherId <> :absentTeacherId
+        ORDER BY t.className DESC, t.section ASC, t.teacherName ASC
+    """)
+    List<ReplacementTeacherDTO> findAllPossibleReplacementTeachers(Long absentTeacherId);
 }

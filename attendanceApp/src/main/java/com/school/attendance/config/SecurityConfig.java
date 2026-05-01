@@ -47,6 +47,7 @@ public class SecurityConfig {
                         .requestMatchers("/students/**").permitAll()
                         .requestMatchers("/attendance/**").permitAll()
                         .requestMatchers("/teacher-assignments/**").permitAll()
+                        .requestMatchers("/teacher-schedules/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
