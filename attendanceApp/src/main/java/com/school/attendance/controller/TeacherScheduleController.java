@@ -48,15 +48,55 @@ public class TeacherScheduleController {
                 );
     }
 
+    /*
+     * NEW:
+     * teacher dropdown list for selected date
+     */
+    @GetMapping("/teachers")
+    public List<TeacherSchedule> getTeachersByDate(@RequestParam String date) {
+        LocalDate scheduleDate = LocalDate.parse(date);
+
+        return teacherScheduleRepository
+                .findByScheduleDateOrderByTeacherNameAscStartTimeAsc(scheduleDate);
+    }
+
+    /*
+     * NEW:
+     * mark full-day leave
+     */
+    @PutMapping("/teacher/{teacherId}/full-day-leave")
+    public List<TeacherSchedule> markTeacherFullDayLeave(
+            @PathVariable Long teacherId,
+            @RequestParam String date,
+            @RequestParam String status
+    ) {
+        LocalDate scheduleDate = LocalDate.parse(date);
+
+        TeacherScheduleStatus leaveStatus =
+                TeacherScheduleStatus.valueOf(status.toUpperCase());
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository.findByTeacherIdAndScheduleDate(
+                        teacherId,
+                        scheduleDate
+                );
+
+        for (TeacherSchedule schedule : schedules) {
+            schedule.setStatus(leaveStatus);
+            schedule.setReplacementTeacherId(null);
+            schedule.setReplacementTeacherName("No replacement assigned");
+        }
+
+        return teacherScheduleRepository.saveAll(schedules);
+    }
+
     @PostMapping
     public TeacherSchedule createSchedule(@RequestBody TeacherSchedule schedule) {
         if (schedule.getStatus() == null) {
             schedule.setStatus(TeacherScheduleStatus.AVAILABLE);
         }
 
-        if (schedule.getReplacementClass() == null) {
-            schedule.setReplacementClass(false);
-        }
+        schedule.setReplacementClass(false);
 
         return teacherScheduleRepository.save(schedule);
     }
@@ -77,6 +117,7 @@ public class TeacherScheduleController {
                 TeacherScheduleStatus.valueOf(status.toUpperCase());
 
         schedule.setStatus(newStatus);
+
         schedule.setReplacementTeacherId(null);
         schedule.setReplacementTeacherName(null);
 
@@ -86,21 +127,6 @@ public class TeacherScheduleController {
 
             schedule.setReplacementTeacherId(replacementTeacherId);
             schedule.setReplacementTeacherName(replacementTeacherName);
-
-            TeacherSchedule replacementSchedule = new TeacherSchedule();
-
-            replacementSchedule.setTeacherId(replacementTeacherId);
-            replacementSchedule.setTeacherName(replacementTeacherName);
-            replacementSchedule.setClassName(schedule.getClassName());
-            replacementSchedule.setSection(schedule.getSection());
-            replacementSchedule.setSubjectName(schedule.getSubjectName());
-            replacementSchedule.setScheduleDate(schedule.getScheduleDate());
-            replacementSchedule.setStartTime(schedule.getStartTime());
-            replacementSchedule.setEndTime(schedule.getEndTime());
-            replacementSchedule.setStatus(TeacherScheduleStatus.REPLACED);
-            replacementSchedule.setReplacementClass(true);
-
-            teacherScheduleRepository.save(replacementSchedule);
 
         } else if (newStatus == TeacherScheduleStatus.PLANNED_LEAVE
                 || newStatus == TeacherScheduleStatus.UNPLANNED_LEAVE) {
@@ -158,7 +184,7 @@ public class TeacherScheduleController {
                 }
             }
 
-            if (!hasOverlap) {
+            if (!hasOverlap && scheduleAvailableForReplacement(teacherSchedule)) {
                 availableTeachers.add(
                         new ReplacementTeacherDTO(
                                 teacherId,
@@ -269,6 +295,11 @@ public class TeacherScheduleController {
                 sameClass,
                 others
         );
+    }
+
+    private boolean scheduleAvailableForReplacement(TeacherSchedule schedule) {
+        return schedule.getStatus() != TeacherScheduleStatus.PLANNED_LEAVE
+                && schedule.getStatus() != TeacherScheduleStatus.UNPLANNED_LEAVE;
     }
 
     @DeleteMapping("/{id}")

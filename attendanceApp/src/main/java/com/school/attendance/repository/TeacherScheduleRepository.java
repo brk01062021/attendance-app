@@ -15,4 +15,11 @@ public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule
     );
 
     List<TeacherSchedule> findByScheduleDate(LocalDate scheduleDate);
+
+    List<TeacherSchedule> findByScheduleDateOrderByTeacherNameAscStartTimeAsc(LocalDate scheduleDate);
+
+    List<TeacherSchedule> findByTeacherIdAndScheduleDate(
+            Long teacherId,
+            LocalDate scheduleDate
+    );
 }
