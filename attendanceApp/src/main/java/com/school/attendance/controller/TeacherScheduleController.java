@@ -48,10 +48,6 @@ public class TeacherScheduleController {
                 );
     }
 
-    /*
-     * NEW:
-     * teacher dropdown list for selected date
-     */
     @GetMapping("/teachers")
     public List<TeacherSchedule> getTeachersByDate(@RequestParam String date) {
         LocalDate scheduleDate = LocalDate.parse(date);
@@ -60,10 +56,6 @@ public class TeacherScheduleController {
                 .findByScheduleDateOrderByTeacherNameAscStartTimeAsc(scheduleDate);
     }
 
-    /*
-     * NEW:
-     * mark full-day leave
-     */
     @PutMapping("/teacher/{teacherId}/full-day-leave")
     public List<TeacherSchedule> markTeacherFullDayLeave(
             @PathVariable Long teacherId,
@@ -85,6 +77,7 @@ public class TeacherScheduleController {
             schedule.setStatus(leaveStatus);
             schedule.setReplacementTeacherId(null);
             schedule.setReplacementTeacherName("No replacement assigned");
+            schedule.setReplacementClass(false);
         }
 
         return teacherScheduleRepository.saveAll(schedules);
@@ -117,9 +110,9 @@ public class TeacherScheduleController {
                 TeacherScheduleStatus.valueOf(status.toUpperCase());
 
         schedule.setStatus(newStatus);
-
         schedule.setReplacementTeacherId(null);
         schedule.setReplacementTeacherName(null);
+        schedule.setReplacementClass(false);
 
         if (replacementTeacherId != null
                 && replacementTeacherName != null
@@ -127,6 +120,7 @@ public class TeacherScheduleController {
 
             schedule.setReplacementTeacherId(replacementTeacherId);
             schedule.setReplacementTeacherName(replacementTeacherName);
+            schedule.setReplacementClass(true);
 
         } else if (newStatus == TeacherScheduleStatus.PLANNED_LEAVE
                 || newStatus == TeacherScheduleStatus.UNPLANNED_LEAVE) {
@@ -174,9 +168,7 @@ public class TeacherScheduleController {
 
                 boolean overlaps =
                         schedule.getStartTime().isBefore(leaveSchedule.getEndTime())
-                                && schedule.getEndTime().isAfter(
-                                leaveSchedule.getStartTime()
-                        );
+                                && schedule.getEndTime().isAfter(leaveSchedule.getStartTime());
 
                 if (overlaps) {
                     hasOverlap = true;
@@ -295,6 +287,80 @@ public class TeacherScheduleController {
                 sameClass,
                 others
         );
+    }
+
+    @GetMapping("/{scheduleId}/available-replacements")
+    public List<ReplacementTeacherDTO> getAvailableTeachersForSchedule(
+            @PathVariable Long scheduleId
+    ) {
+        TeacherSchedule leaveSchedule = teacherScheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new RuntimeException(
+                        "Teacher schedule not found with id: " + scheduleId
+                ));
+
+        List<TeacherSchedule> sameTimeSchedules =
+                teacherScheduleRepository.findByScheduleDateAndStartTimeAndEndTime(
+                        leaveSchedule.getScheduleDate(),
+                        leaveSchedule.getStartTime(),
+                        leaveSchedule.getEndTime()
+                );
+
+        List<ReplacementTeacherDTO> available = new ArrayList<>();
+
+        for (TeacherSchedule schedule : sameTimeSchedules) {
+
+            if (schedule.getTeacherId().equals(leaveSchedule.getTeacherId())) {
+                continue;
+            }
+
+            if (schedule.getStatus() == TeacherScheduleStatus.PLANNED_LEAVE
+                    || schedule.getStatus() == TeacherScheduleStatus.UNPLANNED_LEAVE) {
+                continue;
+            }
+
+            if (schedule.getReplacementTeacherId() != null) {
+                continue;
+            }
+
+            available.add(
+                    new ReplacementTeacherDTO(
+                            schedule.getTeacherId(),
+                            schedule.getTeacherName(),
+                            schedule.getClassName(),
+                            schedule.getSection(),
+                            schedule.getSubjectName(),
+                            "AVAILABLE"
+                    )
+            );
+        }
+
+        return available;
+    }
+
+    @PutMapping("/{scheduleId}/assign-replacement")
+    public TeacherSchedule assignReplacementTeacher(
+            @PathVariable Long scheduleId,
+            @RequestParam Long replacementTeacherId
+    ) {
+        TeacherSchedule leaveSchedule = teacherScheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new RuntimeException(
+                        "Teacher schedule not found with id: " + scheduleId
+                ));
+
+        TeacherSchedule replacementTeacher = teacherScheduleRepository
+                .findAll()
+                .stream()
+                .filter(s -> s.getTeacherId().equals(replacementTeacherId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException(
+                        "Replacement teacher not found with id: " + replacementTeacherId
+                ));
+
+        leaveSchedule.setReplacementTeacherId(replacementTeacherId);
+        leaveSchedule.setReplacementTeacherName(replacementTeacher.getTeacherName());
+        leaveSchedule.setReplacementClass(true);
+
+        return teacherScheduleRepository.save(leaveSchedule);
     }
 
     private boolean scheduleAvailableForReplacement(TeacherSchedule schedule) {

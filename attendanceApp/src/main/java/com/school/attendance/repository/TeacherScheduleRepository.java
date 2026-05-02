@@ -2,6 +2,7 @@ package com.school.attendance.repository;
 
 import com.school.attendance.entity.TeacherSchedule;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -21,5 +22,16 @@ public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule
     List<TeacherSchedule> findByTeacherIdAndScheduleDate(
             Long teacherId,
             LocalDate scheduleDate
+    );
+
+    List<TeacherSchedule> findByScheduleDateBetweenOrderByScheduleDateAscStartTimeAscTeacherNameAsc(
+            LocalDate fromDate,
+            LocalDate toDate
+    );
+
+    List<TeacherSchedule> findByScheduleDateAndStartTimeAndEndTime(
+            LocalDate scheduleDate,
+            LocalTime startTime,
+            LocalTime endTime
     );
 }
