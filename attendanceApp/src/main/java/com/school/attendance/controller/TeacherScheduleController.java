@@ -3,6 +3,8 @@ package com.school.attendance.controller;
 import com.school.attendance.dto.GroupedReplacementOptionsDTO;
 import com.school.attendance.dto.MultiDayLeaveRequest;
 import com.school.attendance.dto.ReplacementTeacherDTO;
+import com.school.attendance.dto.AutoAssignResultDTO;
+import com.school.attendance.dto.BulkReplacementAssignRequest;
 import com.school.attendance.entity.TeacherSchedule;
 import com.school.attendance.entity.TeacherScheduleStatus;
 import com.school.attendance.repository.TeacherScheduleRepository;
@@ -431,10 +433,112 @@ public class TeacherScheduleController {
 
         return teacherScheduleRepository.save(leaveSchedule);
     }
+    @PostMapping("/auto-assign-best")
+    public AutoAssignResultDTO autoAssignBestMatches(
+            @RequestParam String date
+    ) {
+        LocalDate scheduleDate = LocalDate.parse(date);
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository.findByScheduleDate(scheduleDate);
+
+        int totalUnassigned = 0;
+        int assigned = 0;
+
+        for (TeacherSchedule schedule : schedules) {
+
+            boolean leaveSchedule =
+                    schedule.getStatus() == TeacherScheduleStatus.PLANNED_LEAVE
+                            || schedule.getStatus() == TeacherScheduleStatus.UNPLANNED_LEAVE;
+
+            boolean unassigned =
+                    schedule.getReplacementTeacherId() == null;
+
+            if (!leaveSchedule || !unassigned) {
+                continue;
+            }
+
+            totalUnassigned++;
+
+            GroupedReplacementOptionsDTO options =
+                    getAvailableReplacementTeachers(schedule.getId());
+
+            ReplacementTeacherDTO selected = null;
+
+            if (!options.getBestMatch().isEmpty()) {
+                selected = options.getBestMatch().get(0);
+            } else if (!options.getSameClass().isEmpty()) {
+                selected = options.getSameClass().get(0);
+            } else if (!options.getOthers().isEmpty()) {
+                selected = options.getOthers().get(0);
+            }
+
+            if (selected != null) {
+                schedule.setReplacementTeacherId(selected.getTeacherId());
+                schedule.setReplacementTeacherName(selected.getTeacherName());
+                schedule.setReplacementClass(true);
+
+                teacherScheduleRepository.save(schedule);
+                assigned++;
+            }
+        }
+
+        return new AutoAssignResultDTO(
+                date,
+                totalUnassigned,
+                assigned,
+                totalUnassigned - assigned,
+                "Auto assign completed"
+        );
+    }
 
     private boolean scheduleAvailableForReplacement(TeacherSchedule schedule) {
         return schedule.getStatus() != TeacherScheduleStatus.PLANNED_LEAVE
                 && schedule.getStatus() != TeacherScheduleStatus.UNPLANNED_LEAVE;
+    }
+    @PutMapping("/bulk-assign-replacement")
+    public List<TeacherSchedule> bulkAssignReplacement(
+            @RequestBody BulkReplacementAssignRequest request
+    ) {
+        if (request.getScheduleIds() == null || request.getScheduleIds().isEmpty()) {
+            throw new RuntimeException("Schedule ids are required");
+        }
+
+        if (request.getReplacementTeacherId() == null) {
+            throw new RuntimeException("Replacement teacher id is required");
+        }
+
+        TeacherSchedule replacementTeacher = teacherScheduleRepository
+                .findAll()
+                .stream()
+                .filter(s -> s.getTeacherId().equals(request.getReplacementTeacherId()))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException(
+                        "Replacement teacher not found with id: " + request.getReplacementTeacherId()
+                ));
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository.findAllById(request.getScheduleIds());
+
+        List<TeacherSchedule> updatedSchedules = new ArrayList<>();
+
+        for (TeacherSchedule schedule : schedules) {
+            boolean leaveSchedule =
+                    schedule.getStatus() == TeacherScheduleStatus.PLANNED_LEAVE
+                            || schedule.getStatus() == TeacherScheduleStatus.UNPLANNED_LEAVE;
+
+            if (!leaveSchedule) {
+                continue;
+            }
+
+            schedule.setReplacementTeacherId(request.getReplacementTeacherId());
+            schedule.setReplacementTeacherName(replacementTeacher.getTeacherName());
+            schedule.setReplacementClass(true);
+
+            updatedSchedules.add(schedule);
+        }
+
+        return teacherScheduleRepository.saveAll(updatedSchedules);
     }
 
     @DeleteMapping("/{id}")

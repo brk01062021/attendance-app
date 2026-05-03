@@ -34,9 +34,28 @@ public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule
             LocalTime startTime,
             LocalTime endTime
     );
+
     List<TeacherSchedule> findByTeacherIdAndScheduleDateBetweenOrderByScheduleDateAscStartTimeAsc(
             Long teacherId,
             LocalDate fromDate,
             LocalDate toDate
+    );
+
+    // New methods for Auto Assign Best Matches
+
+    List<TeacherSchedule> findByScheduleDateAndReplacementTeacherIdIsNull(
+            LocalDate scheduleDate
+    );
+
+    List<TeacherSchedule> findByScheduleDateAndTeacherIdAndReplacementTeacherIdIsNull(
+            LocalDate scheduleDate,
+            Long teacherId
+    );
+
+    List<TeacherSchedule> findByScheduleDateAndStartTimeAndEndTimeAndTeacherIdNot(
+            LocalDate scheduleDate,
+            LocalTime startTime,
+            LocalTime endTime,
+            Long teacherId
     );
 }
