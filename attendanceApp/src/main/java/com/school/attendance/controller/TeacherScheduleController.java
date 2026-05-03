@@ -1,6 +1,7 @@
 package com.school.attendance.controller;
 
 import com.school.attendance.dto.GroupedReplacementOptionsDTO;
+import com.school.attendance.dto.MultiDayLeaveRequest;
 import com.school.attendance.dto.ReplacementTeacherDTO;
 import com.school.attendance.entity.TeacherSchedule;
 import com.school.attendance.entity.TeacherScheduleStatus;
@@ -48,12 +49,55 @@ public class TeacherScheduleController {
                 );
     }
 
-    @GetMapping("/teachers")
-    public List<TeacherSchedule> getTeachersByDate(@RequestParam String date) {
-        LocalDate scheduleDate = LocalDate.parse(date);
+    @GetMapping("/{teacherId}/range")
+    public List<TeacherSchedule> getTeacherSchedulesByDateRange(
+            @PathVariable Long teacherId,
+            @RequestParam String fromDate,
+            @RequestParam String toDate
+    ) {
+        LocalDate from = LocalDate.parse(fromDate);
+        LocalDate to = LocalDate.parse(toDate);
 
         return teacherScheduleRepository
-                .findByScheduleDateOrderByTeacherNameAscStartTimeAsc(scheduleDate);
+                .findByTeacherIdAndScheduleDateBetweenOrderByScheduleDateAscStartTimeAsc(
+                        teacherId,
+                        from,
+                        to
+                );
+    }
+
+    @GetMapping("/teachers")
+    public List<Map<String, Object>> getTeachersByDate(
+            @RequestParam(required = false) String date
+    ) {
+        List<TeacherSchedule> schedules;
+
+        if (date != null && !date.isBlank()) {
+            LocalDate scheduleDate = LocalDate.parse(date);
+            schedules = teacherScheduleRepository
+                    .findByScheduleDateOrderByTeacherNameAscStartTimeAsc(scheduleDate);
+        } else {
+            schedules = teacherScheduleRepository.findAll();
+        }
+
+        return schedules.stream()
+                .collect(
+                        java.util.stream.Collectors.toMap(
+                                TeacherSchedule::getTeacherId,
+                                TeacherSchedule::getTeacherName,
+                                (existing, replacement) -> existing
+                        )
+                )
+                .entrySet()
+                .stream()
+                .map(entry -> {
+                    Map<String, Object> teacher = new LinkedHashMap<>();
+                    teacher.put("teacherId", entry.getKey());
+                    teacher.put("teacherName", entry.getValue());
+                    return teacher;
+                })
+                .sorted(Comparator.comparing(item -> item.get("teacherName").toString()))
+                .toList();
     }
 
     @PutMapping("/teacher/{teacherId}/full-day-leave")
@@ -72,6 +116,31 @@ public class TeacherScheduleController {
                         teacherId,
                         scheduleDate
                 );
+
+        for (TeacherSchedule schedule : schedules) {
+            schedule.setStatus(leaveStatus);
+            schedule.setReplacementTeacherId(null);
+            schedule.setReplacementTeacherName("No replacement assigned");
+            schedule.setReplacementClass(false);
+        }
+
+        return teacherScheduleRepository.saveAll(schedules);
+    }
+
+    @PutMapping("/leave/multi-day")
+    public List<TeacherSchedule> markTeacherMultiDayLeave(
+            @RequestBody MultiDayLeaveRequest request
+    ) {
+        TeacherScheduleStatus leaveStatus =
+                TeacherScheduleStatus.valueOf(request.getLeaveType().toUpperCase());
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository
+                        .findByTeacherIdAndScheduleDateBetweenOrderByScheduleDateAscStartTimeAsc(
+                                request.getTeacherId(),
+                                request.getFromDate(),
+                                request.getToDate()
+                        );
 
         for (TeacherSchedule schedule : schedules) {
             schedule.setStatus(leaveStatus);

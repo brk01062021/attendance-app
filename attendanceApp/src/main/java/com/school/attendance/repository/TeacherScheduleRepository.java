@@ -34,4 +34,9 @@ public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule
             LocalTime startTime,
             LocalTime endTime
     );
+    List<TeacherSchedule> findByTeacherIdAndScheduleDateBetweenOrderByScheduleDateAscStartTimeAsc(
+            Long teacherId,
+            LocalDate fromDate,
+            LocalDate toDate
+    );
 }
