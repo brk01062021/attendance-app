@@ -541,6 +541,41 @@ public class TeacherScheduleController {
         return teacherScheduleRepository.saveAll(updatedSchedules);
     }
 
+
+    @GetMapping("/replacements")
+    public List<TeacherSchedule> getTeacherReplacementSchedules(
+            @RequestParam Long teacherId
+    ) {
+        return teacherScheduleRepository.findAll()
+                .stream()
+                .filter(schedule ->
+                        schedule.getReplacementTeacherId() != null
+                                && schedule.getReplacementTeacherId().equals(teacherId)
+                )
+                .sorted(
+                        Comparator.comparing(TeacherSchedule::getScheduleDate)
+                                .thenComparing(TeacherSchedule::getStartTime)
+                )
+                .toList();
+    }
+
+    @GetMapping("/replacements")
+    public List<TeacherSchedule> getTeacherReplacementSchedules(
+            @RequestParam Long teacherId
+    ) {
+        return teacherScheduleRepository.findAll()
+                .stream()
+                .filter(schedule ->
+                        schedule.getReplacementTeacherId() != null
+                                && schedule.getReplacementTeacherId().equals(teacherId)
+                )
+                .sorted(
+                        Comparator.comparing(TeacherSchedule::getScheduleDate)
+                                .thenComparing(TeacherSchedule::getStartTime)
+                )
+                .toList();
+    }
+
     @DeleteMapping("/{id}")
     public void deleteSchedule(@PathVariable Long id) {
         teacherScheduleRepository.deleteById(id);
