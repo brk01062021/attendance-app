@@ -7,7 +7,10 @@ import com.school.attendance.entity.AppUser;
 import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.security.JwtUtil;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/auth")

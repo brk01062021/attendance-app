@@ -1,32 +1,31 @@
 package com.school.attendance.controller;
 
-import com.school.attendance.dto.GroupedReplacementOptionsDTO;
-import com.school.attendance.dto.MultiDayLeaveRequest;
-import com.school.attendance.dto.ReplacementTeacherDTO;
-import com.school.attendance.dto.AutoAssignResultDTO;
-import com.school.attendance.dto.BulkReplacementAssignRequest;
+import com.school.attendance.dto.*;
+import com.school.attendance.entity.Notification;
 import com.school.attendance.entity.TeacherSchedule;
 import com.school.attendance.entity.TeacherScheduleStatus;
+import com.school.attendance.repository.NotificationRepository;
 import com.school.attendance.repository.TeacherScheduleRepository;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @RestController
 @RequestMapping("/teacher-schedules")
 public class TeacherScheduleController {
 
     private final TeacherScheduleRepository teacherScheduleRepository;
+    private final NotificationRepository notificationRepository;
 
-    public TeacherScheduleController(TeacherScheduleRepository teacherScheduleRepository) {
+    public TeacherScheduleController(
+            TeacherScheduleRepository teacherScheduleRepository,
+            NotificationRepository notificationRepository
+    ) {
         this.teacherScheduleRepository = teacherScheduleRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     @GetMapping
@@ -192,6 +191,12 @@ public class TeacherScheduleController {
             schedule.setReplacementTeacherId(replacementTeacherId);
             schedule.setReplacementTeacherName(replacementTeacherName);
             schedule.setReplacementClass(true);
+
+            createReplacementNotification(
+                    replacementTeacherId,
+                    replacementTeacherName,
+                    schedule
+            );
 
         } else if (newStatus == TeacherScheduleStatus.PLANNED_LEAVE
                 || newStatus == TeacherScheduleStatus.UNPLANNED_LEAVE) {
@@ -431,8 +436,17 @@ public class TeacherScheduleController {
         leaveSchedule.setReplacementTeacherName(replacementTeacher.getTeacherName());
         leaveSchedule.setReplacementClass(true);
 
-        return teacherScheduleRepository.save(leaveSchedule);
+        TeacherSchedule savedSchedule = teacherScheduleRepository.save(leaveSchedule);
+
+        createReplacementNotification(
+                replacementTeacherId,
+                replacementTeacher.getTeacherName(),
+                savedSchedule
+        );
+
+        return savedSchedule;
     }
+
     @PostMapping("/auto-assign-best")
     public AutoAssignResultDTO autoAssignBestMatches(
             @RequestParam String date
@@ -478,7 +492,14 @@ public class TeacherScheduleController {
                 schedule.setReplacementTeacherName(selected.getTeacherName());
                 schedule.setReplacementClass(true);
 
-                teacherScheduleRepository.save(schedule);
+                TeacherSchedule savedSchedule = teacherScheduleRepository.save(schedule);
+
+                createReplacementNotification(
+                        selected.getTeacherId(),
+                        selected.getTeacherName(),
+                        savedSchedule
+                );
+
                 assigned++;
             }
         }
@@ -496,6 +517,7 @@ public class TeacherScheduleController {
         return schedule.getStatus() != TeacherScheduleStatus.PLANNED_LEAVE
                 && schedule.getStatus() != TeacherScheduleStatus.UNPLANNED_LEAVE;
     }
+
     @PutMapping("/bulk-assign-replacement")
     public List<TeacherSchedule> bulkAssignReplacement(
             @RequestBody BulkReplacementAssignRequest request
@@ -538,25 +560,17 @@ public class TeacherScheduleController {
             updatedSchedules.add(schedule);
         }
 
-        return teacherScheduleRepository.saveAll(updatedSchedules);
-    }
+        List<TeacherSchedule> savedSchedules = teacherScheduleRepository.saveAll(updatedSchedules);
 
+        for (TeacherSchedule schedule : savedSchedules) {
+            createReplacementNotification(
+                    request.getReplacementTeacherId(),
+                    replacementTeacher.getTeacherName(),
+                    schedule
+            );
+        }
 
-    @GetMapping("/replacements")
-    public List<TeacherSchedule> getTeacherReplacementSchedules(
-            @RequestParam Long teacherId
-    ) {
-        return teacherScheduleRepository.findAll()
-                .stream()
-                .filter(schedule ->
-                        schedule.getReplacementTeacherId() != null
-                                && schedule.getReplacementTeacherId().equals(teacherId)
-                )
-                .sorted(
-                        Comparator.comparing(TeacherSchedule::getScheduleDate)
-                                .thenComparing(TeacherSchedule::getStartTime)
-                )
-                .toList();
+        return savedSchedules;
     }
 
     @GetMapping("/replacements")
@@ -574,6 +588,35 @@ public class TeacherScheduleController {
                                 .thenComparing(TeacherSchedule::getStartTime)
                 )
                 .toList();
+    }
+
+    private void createReplacementNotification(
+            Long replacementTeacherId,
+            String replacementTeacherName,
+            TeacherSchedule schedule
+    ) {
+        if (replacementTeacherId == null || schedule == null) {
+            return;
+        }
+
+        Notification notification = new Notification();
+        notification.setUserId(replacementTeacherId);
+        notification.setRole("TEACHER");
+        notification.setTitle("Replacement Assigned");
+        notification.setMessage(
+                "You have been assigned Class "
+                        + schedule.getClassName()
+                        + "-"
+                        + schedule.getSection()
+                        + " "
+                        + schedule.getSubjectName()
+                        + " at "
+                        + schedule.getStartTime()
+                        + "."
+        );
+        notification.setType("REPLACEMENT_ASSIGNED");
+
+        notificationRepository.save(notification);
     }
 
     @DeleteMapping("/{id}")

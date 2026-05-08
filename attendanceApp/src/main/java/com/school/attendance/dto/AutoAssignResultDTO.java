@@ -23,36 +23,36 @@ public class AutoAssignResultDTO {
         return date;
     }
 
-    public int getTotalUnassigned() {
-        return totalUnassigned;
-    }
-
-    public int getAssignedCount() {
-        return assignedCount;
-    }
-
-    public int getStillUnassigned() {
-        return stillUnassigned;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
     public void setDate(String date) {
         this.date = date;
+    }
+
+    public int getTotalUnassigned() {
+        return totalUnassigned;
     }
 
     public void setTotalUnassigned(int totalUnassigned) {
         this.totalUnassigned = totalUnassigned;
     }
 
+    public int getAssignedCount() {
+        return assignedCount;
+    }
+
     public void setAssignedCount(int assignedCount) {
         this.assignedCount = assignedCount;
     }
 
+    public int getStillUnassigned() {
+        return stillUnassigned;
+    }
+
     public void setStillUnassigned(int stillUnassigned) {
         this.stillUnassigned = stillUnassigned;
+    }
+
+    public String getMessage() {
+        return message;
     }
 
     public void setMessage(String message) {

@@ -24,12 +24,35 @@ public class AttendanceReportDTO {
         this.attendancePercentage = totalDays == 0 ? 0 : (presentDays * 100.0) / totalDays;
     }
 
-    public Long getStudentId() { return studentId; }
-    public String getStudentName() { return studentName; }
-    public String getClassName() { return className; }
-    public String getSection() { return section; }
-    public long getTotalDays() { return totalDays; }
-    public long getPresentDays() { return presentDays; }
-    public long getAbsentDays() { return absentDays; }
-    public double getAttendancePercentage() { return attendancePercentage; }
+    public Long getStudentId() {
+        return studentId;
+    }
+
+    public String getStudentName() {
+        return studentName;
+    }
+
+    public String getClassName() {
+        return className;
+    }
+
+    public String getSection() {
+        return section;
+    }
+
+    public long getTotalDays() {
+        return totalDays;
+    }
+
+    public long getPresentDays() {
+        return presentDays;
+    }
+
+    public long getAbsentDays() {
+        return absentDays;
+    }
+
+    public double getAttendancePercentage() {
+        return attendancePercentage;
+    }
 }

@@ -1,16 +1,6 @@
 package com.school.attendance.controller;
 
-import com.school.attendance.dto.AdminDashboardDTO;
-import com.school.attendance.dto.AttendanceReportDTO;
-import com.school.attendance.dto.ClassDashboardDTO;
-import com.school.attendance.dto.TeacherWiseDashboardDTO;
-import com.school.attendance.dto.SubjectDashboardDTO;
-import com.school.attendance.dto.TeacherClassDashboardDTO;
-import com.school.attendance.dto.AdminStudentAttendanceDTO;
-import com.school.attendance.dto.DateRangeDashboardDTO;
-import com.school.attendance.dto.AttendanceRequest;
-import com.school.attendance.dto.BulkAttendanceRequest;
-import com.school.attendance.dto.TeacherDashboardDTO;
+import com.school.attendance.dto.*;
 import com.school.attendance.entity.Attendance;
 import com.school.attendance.entity.AttendanceStatus;
 import com.school.attendance.entity.Student;

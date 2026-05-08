@@ -1,10 +1,11 @@
 package com.school.attendance.repository;
 
 import com.school.attendance.entity.TeacherSchedule;
+import org.springframework.data.jpa.repository.JpaRepository;
+
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
-import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule, Long> {
 

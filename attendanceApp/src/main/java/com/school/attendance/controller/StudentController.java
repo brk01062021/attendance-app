@@ -29,6 +29,7 @@ public class StudentController {
 
         return repository.findByClassNameAndSection(className, section);
     }
+
     @GetMapping("/classes")
     public List<String> getClasses() {
         return repository.findDistinctClassNames();

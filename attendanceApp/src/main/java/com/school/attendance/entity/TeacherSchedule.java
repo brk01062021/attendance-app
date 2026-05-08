@@ -1,6 +1,7 @@
 package com.school.attendance.entity;
 
 import jakarta.persistence.*;
+
 import java.time.LocalDate;
 import java.time.LocalTime;
 

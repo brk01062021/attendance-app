@@ -28,11 +28,31 @@ public class TeacherDashboardDTO {
         this.attendancePercentage = attendancePercentage;
     }
 
-    public Long getTeacherId() { return teacherId; }
-    public String getTeacherName() { return teacherName; }
-    public long getTotalStudents() { return totalStudents; }
-    public long getPresent() { return present; }
-    public long getAbsent() { return absent; }
-    public long getLate() { return late; }
-    public double getAttendancePercentage() { return attendancePercentage; }
+    public Long getTeacherId() {
+        return teacherId;
+    }
+
+    public String getTeacherName() {
+        return teacherName;
+    }
+
+    public long getTotalStudents() {
+        return totalStudents;
+    }
+
+    public long getPresent() {
+        return present;
+    }
+
+    public long getAbsent() {
+        return absent;
+    }
+
+    public long getLate() {
+        return late;
+    }
+
+    public double getAttendancePercentage() {
+        return attendancePercentage;
+    }
 }
