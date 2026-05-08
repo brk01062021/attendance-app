@@ -3,12 +3,15 @@ package com.school.attendance.controller;
 import com.school.attendance.dto.*;
 import com.school.attendance.entity.Attendance;
 import com.school.attendance.entity.AttendanceStatus;
+import com.school.attendance.entity.Notification;
 import com.school.attendance.entity.Student;
 import com.school.attendance.repository.AttendanceRepository;
+import com.school.attendance.repository.NotificationRepository;
 import com.school.attendance.repository.StudentRepository;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -20,11 +23,16 @@ public class AttendanceController {
 
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
+    private final NotificationRepository notificationRepository;
 
-    public AttendanceController(AttendanceRepository attendanceRepository,
-                                StudentRepository studentRepository) {
+    public AttendanceController(
+            AttendanceRepository attendanceRepository,
+            StudentRepository studentRepository,
+            NotificationRepository notificationRepository
+    ) {
         this.attendanceRepository = attendanceRepository;
         this.studentRepository = studentRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     @GetMapping
@@ -404,6 +412,79 @@ public class AttendanceController {
         }
 
         return report;
+    }
+
+    @PostMapping("/notify/weekly")
+    public List<Notification> sendWeeklyAttendanceNotification(
+            @RequestParam String className,
+            @RequestParam String section
+    ) {
+        List<Student> students =
+                studentRepository.findByClassNameAndSection(className, section);
+
+        List<Notification> notifications = new ArrayList<>();
+
+        for (Student student : students) {
+            Notification notification = new Notification();
+
+            notification.setUserId(student.getId());
+            notification.setRole("STUDENT");
+            notification.setSchoolId(null);
+            notification.setClassName(student.getClassName());
+            notification.setSection(student.getSection());
+            notification.setTitle("Weekly Attendance Report");
+            notification.setMessage(
+                    "Weekly attendance report is available for "
+                            + className
+                            + "-"
+                            + section
+            );
+            notification.setType("ATTENDANCE_REPORT");
+            notification.setRead(false);
+            notification.setCreatedAt(LocalDateTime.now());
+
+            notifications.add(notification);
+        }
+
+        return notificationRepository.saveAll(notifications);
+    }
+
+    @PostMapping("/notify/monthly")
+    public List<Notification> sendMonthlyAttendanceNotification(
+            @RequestParam String className,
+            @RequestParam String section,
+            @RequestParam int year,
+            @RequestParam int month
+    ) {
+        List<Student> students =
+                studentRepository.findByClassNameAndSection(className, section);
+
+        List<Notification> notifications = new ArrayList<>();
+
+        for (Student student : students) {
+            Notification notification = new Notification();
+
+            notification.setUserId(student.getId());
+            notification.setRole("STUDENT");
+            notification.setSchoolId(null);
+            notification.setClassName(student.getClassName());
+            notification.setSection(student.getSection());
+            notification.setTitle("Monthly Attendance Report");
+            notification.setMessage(
+                    "Monthly attendance report for "
+                            + month
+                            + "/"
+                            + year
+                            + " is now available."
+            );
+            notification.setType("ATTENDANCE_REPORT");
+            notification.setRead(false);
+            notification.setCreatedAt(LocalDateTime.now());
+
+            notifications.add(notification);
+        }
+
+        return notificationRepository.saveAll(notifications);
     }
 
     @GetMapping("/dashboard/admin/classes")
