@@ -590,6 +590,326 @@ public class TeacherScheduleController {
                 .toList();
     }
 
+    @GetMapping("/reports/absence-summary")
+    public List<Map<String, Object>> getTeacherAbsenceSummaryReport(
+            @RequestParam String date
+    ) {
+        LocalDate scheduleDate = LocalDate.parse(date);
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository.findByScheduleDate(scheduleDate);
+
+        Map<Long, Map<String, Object>> summaryMap = new LinkedHashMap<>();
+
+        for (TeacherSchedule schedule : schedules) {
+            boolean leaveSchedule = isLeaveSchedule(schedule);
+
+            if (!leaveSchedule) {
+                continue;
+            }
+
+            Long teacherId = schedule.getTeacherId();
+
+            Map<String, Object> row = summaryMap.getOrDefault(teacherId, new LinkedHashMap<>());
+            row.put("teacherId", teacherId);
+            row.put("teacherName", schedule.getTeacherName());
+            row.put("date", schedule.getScheduleDate().toString());
+
+            int leaves = getIntValue(row, "leaves") + 1;
+            int planned = getIntValue(row, "planned");
+            int unplanned = getIntValue(row, "unplanned");
+            int assigned = getIntValue(row, "assigned");
+            int missing = getIntValue(row, "missing");
+
+            if (schedule.getStatus() == TeacherScheduleStatus.PLANNED_LEAVE) {
+                planned++;
+            }
+
+            if (schedule.getStatus() == TeacherScheduleStatus.UNPLANNED_LEAVE) {
+                unplanned++;
+            }
+
+            if (schedule.getReplacementTeacherId() != null) {
+                assigned++;
+            } else {
+                missing++;
+            }
+
+            int coverage = leaves == 0 ? 0 : Math.round((assigned * 100f) / leaves);
+
+            row.put("leaves", leaves);
+            row.put("planned", planned);
+            row.put("unplanned", unplanned);
+            row.put("assigned", assigned);
+            row.put("missing", missing);
+            row.put("coverage", coverage);
+
+            summaryMap.put(teacherId, row);
+        }
+
+        return summaryMap.values()
+                .stream()
+                .sorted(
+                        Comparator.comparing(
+                                item -> String.valueOf(item.get("teacherName"))
+                        )
+                )
+                .toList();
+    }
+
+    @GetMapping("/reports/replacement-workload")
+    public List<Map<String, Object>> getReplacementWorkloadReport(
+            @RequestParam String date
+    ) {
+        LocalDate scheduleDate = LocalDate.parse(date);
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository.findByScheduleDate(scheduleDate);
+
+        Map<Long, Map<String, Object>> workloadMap = new LinkedHashMap<>();
+
+        for (TeacherSchedule schedule : schedules) {
+            if (schedule.getReplacementTeacherId() == null) {
+                continue;
+            }
+
+            Long replacementTeacherId = schedule.getReplacementTeacherId();
+
+            Map<String, Object> row = workloadMap.getOrDefault(replacementTeacherId, new LinkedHashMap<>());
+            row.put("teacherId", replacementTeacherId);
+            row.put("teacherName", schedule.getReplacementTeacherName());
+            row.put("date", schedule.getScheduleDate().toString());
+
+            int periods = getIntValue(row, "periods") + 1;
+            int classes = getIntValue(row, "classes");
+            int totalMinutes = getIntValue(row, "totalMinutes");
+
+            if (schedule.getStartTime() != null && schedule.getEndTime() != null) {
+                totalMinutes += (int) Duration.between(
+                        schedule.getStartTime(),
+                        schedule.getEndTime()
+                ).toMinutes();
+            }
+
+            Set<String> classKeys = getStringSet(row, "classKeys");
+            classKeys.add(schedule.getClassName() + "-" + schedule.getSection());
+
+            classes = classKeys.size();
+
+            row.put("periods", periods);
+            row.put("totalMinutes", totalMinutes);
+            row.put("hours", Math.round((totalMinutes / 60.0) * 10.0) / 10.0);
+            row.put("classes", classes);
+            row.put("classKeys", classKeys);
+
+            workloadMap.put(replacementTeacherId, row);
+        }
+
+        return workloadMap.values()
+                .stream()
+                .peek(row -> row.remove("classKeys"))
+                .sorted(
+                        Comparator.comparingInt(
+                                item -> -getIntValue(item, "periods")
+                        )
+                )
+                .toList();
+    }
+
+    @GetMapping("/reports/coverage-trend")
+    public List<Map<String, Object>> getReplacementCoverageTrendReport(
+            @RequestParam String fromDate,
+            @RequestParam String toDate
+    ) {
+        LocalDate from = LocalDate.parse(fromDate);
+        LocalDate to = LocalDate.parse(toDate);
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository
+                        .findByScheduleDateBetweenOrderByScheduleDateAscStartTimeAscTeacherNameAsc(
+                                from,
+                                to
+                        );
+
+        Map<Long, Map<String, Object>> trendMap = new LinkedHashMap<>();
+
+        for (TeacherSchedule schedule : schedules) {
+            if (schedule.getReplacementTeacherId() == null) {
+                continue;
+            }
+
+            Long replacementTeacherId = schedule.getReplacementTeacherId();
+
+            Map<String, Object> row = trendMap.getOrDefault(replacementTeacherId, new LinkedHashMap<>());
+            row.put("teacherId", replacementTeacherId);
+            row.put("teacherName", schedule.getReplacementTeacherName());
+
+            int total = getIntValue(row, "total") + 1;
+            row.put("total", total);
+
+            Map<String, Integer> dateWise = getDateWiseMap(row, "dateWise");
+            String scheduleDate = schedule.getScheduleDate().toString();
+            dateWise.put(scheduleDate, dateWise.getOrDefault(scheduleDate, 0) + 1);
+            row.put("dateWise", dateWise);
+
+            trendMap.put(replacementTeacherId, row);
+        }
+
+        return trendMap.values()
+                .stream()
+                .sorted(
+                        Comparator.comparingInt(
+                                item -> -getIntValue(item, "total")
+                        )
+                )
+                .toList();
+    }
+
+    @GetMapping("/reports/replacement-details")
+    public List<Map<String, Object>> getReplacementDetailsReport(
+            @RequestParam String fromDate,
+            @RequestParam String toDate,
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) Long replacementTeacherId
+    ) {
+        LocalDate from = LocalDate.parse(fromDate);
+        LocalDate to = LocalDate.parse(toDate);
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository
+                        .findByScheduleDateBetweenOrderByScheduleDateAscStartTimeAscTeacherNameAsc(
+                                from,
+                                to
+                        );
+
+        return schedules.stream()
+                .filter(schedule -> isLeaveSchedule(schedule) || schedule.getReplacementTeacherId() != null)
+                .filter(schedule ->
+                        teacherId == null || schedule.getTeacherId().equals(teacherId)
+                )
+                .filter(schedule ->
+                        replacementTeacherId == null
+                                || (
+                                schedule.getReplacementTeacherId() != null
+                                        && schedule.getReplacementTeacherId().equals(replacementTeacherId)
+                        )
+                )
+                .map(schedule -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("scheduleId", schedule.getId());
+                    row.put("date", schedule.getScheduleDate().toString());
+                    row.put("teacherId", schedule.getTeacherId());
+                    row.put("teacherName", schedule.getTeacherName());
+                    row.put("className", schedule.getClassName());
+                    row.put("section", schedule.getSection());
+                    row.put("subjectName", schedule.getSubjectName());
+                    row.put("startTime", schedule.getStartTime() == null ? null : schedule.getStartTime().toString());
+                    row.put("endTime", schedule.getEndTime() == null ? null : schedule.getEndTime().toString());
+                    row.put("status", schedule.getStatus() == null ? null : schedule.getStatus().name());
+                    row.put("replacementTeacherId", schedule.getReplacementTeacherId());
+                    row.put("replacementTeacherName", schedule.getReplacementTeacherName());
+                    row.put("replacementAssigned", schedule.getReplacementTeacherId() != null);
+                    row.put("replacementClass", schedule.getReplacementClass());
+                    return row;
+                })
+                .toList();
+    }
+
+    @GetMapping("/reports/dashboard")
+    public Map<String, Object> getReplacementDashboardReport(
+            @RequestParam String date
+    ) {
+        LocalDate scheduleDate = LocalDate.parse(date);
+
+        List<TeacherSchedule> schedules =
+                teacherScheduleRepository.findByScheduleDate(scheduleDate);
+
+        int totalPeriods = schedules.size();
+        int leavePeriods = 0;
+        int plannedLeavePeriods = 0;
+        int unplannedLeavePeriods = 0;
+        int assignedReplacements = 0;
+        int missingReplacements = 0;
+
+        for (TeacherSchedule schedule : schedules) {
+            if (!isLeaveSchedule(schedule)) {
+                continue;
+            }
+
+            leavePeriods++;
+
+            if (schedule.getStatus() == TeacherScheduleStatus.PLANNED_LEAVE) {
+                plannedLeavePeriods++;
+            }
+
+            if (schedule.getStatus() == TeacherScheduleStatus.UNPLANNED_LEAVE) {
+                unplannedLeavePeriods++;
+            }
+
+            if (schedule.getReplacementTeacherId() != null) {
+                assignedReplacements++;
+            } else {
+                missingReplacements++;
+            }
+        }
+
+        int coveragePercentage =
+                leavePeriods == 0 ? 0 : Math.round((assignedReplacements * 100f) / leavePeriods);
+
+        Map<String, Object> dashboard = new LinkedHashMap<>();
+        dashboard.put("date", scheduleDate.toString());
+        dashboard.put("totalPeriods", totalPeriods);
+        dashboard.put("leavePeriods", leavePeriods);
+        dashboard.put("plannedLeavePeriods", plannedLeavePeriods);
+        dashboard.put("unplannedLeavePeriods", unplannedLeavePeriods);
+        dashboard.put("assignedReplacements", assignedReplacements);
+        dashboard.put("missingReplacements", missingReplacements);
+        dashboard.put("coveragePercentage", coveragePercentage);
+
+        return dashboard;
+    }
+
+    private boolean isLeaveSchedule(TeacherSchedule schedule) {
+        return schedule.getStatus() == TeacherScheduleStatus.PLANNED_LEAVE
+                || schedule.getStatus() == TeacherScheduleStatus.UNPLANNED_LEAVE;
+    }
+
+    private int getIntValue(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+
+        if (value instanceof Integer integerValue) {
+            return integerValue;
+        }
+
+        if (value instanceof Number numberValue) {
+            return numberValue.intValue();
+        }
+
+        return 0;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> getStringSet(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+
+        if (value instanceof Set<?>) {
+            return (Set<String>) value;
+        }
+
+        return new LinkedHashSet<>();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Integer> getDateWiseMap(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+
+        if (value instanceof Map<?, ?>) {
+            return (Map<String, Integer>) value;
+        }
+
+        return new LinkedHashMap<>();
+    }
+
     private void createReplacementNotification(
             Long replacementTeacherId,
             String replacementTeacherName,
