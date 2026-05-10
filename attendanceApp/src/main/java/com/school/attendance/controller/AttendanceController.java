@@ -41,25 +41,43 @@ public class AttendanceController {
             @RequestParam(required = false) String subjectName,
             @RequestParam(required = false) String className,
             @RequestParam(required = false) String section,
-            @RequestParam(required = false) LocalDate attendanceDate
+            @RequestParam(required = false) String attendanceDate
     ) {
-        if (teacherId != null
-                && subjectName != null
-                && className != null
-                && section != null
-                && attendanceDate != null) {
+        List<Attendance> records = attendanceRepository.findAll();
 
-            return attendanceRepository
-                    .findByTeacherIdAndSubjectNameAndClassNameAndSectionAndAttendanceDate(
-                            teacherId,
-                            subjectName,
-                            className,
-                            section,
-                            attendanceDate
-                    );
+        if (teacherId != null) {
+            records = records.stream()
+                    .filter(a -> teacherId.equals(a.getTeacherId()))
+                    .toList();
         }
 
-        return attendanceRepository.findAll();
+        if (subjectName != null && !subjectName.isBlank()) {
+            records = records.stream()
+                    .filter(a -> subjectName.equalsIgnoreCase(a.getSubjectName()))
+                    .toList();
+        }
+
+        if (className != null && !className.isBlank()) {
+            records = records.stream()
+                    .filter(a -> className.equalsIgnoreCase(a.getClassName()))
+                    .toList();
+        }
+
+        if (section != null && !section.isBlank()) {
+            records = records.stream()
+                    .filter(a -> section.equalsIgnoreCase(a.getSection()))
+                    .toList();
+        }
+
+        if (attendanceDate != null && !attendanceDate.isBlank()) {
+            LocalDate parsedDate = LocalDate.parse(attendanceDate);
+
+            records = records.stream()
+                    .filter(a -> parsedDate.equals(a.getAttendanceDate()))
+                    .toList();
+        }
+
+        return records;
     }
 
     @GetMapping({"/dashboard", "/dashboard/admin"})
