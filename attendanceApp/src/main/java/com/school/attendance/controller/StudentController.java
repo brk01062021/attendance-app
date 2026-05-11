@@ -1,5 +1,6 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.dto.StudentSearchDTO;
 import com.school.attendance.entity.Student;
 import com.school.attendance.repository.StudentRepository;
 import org.springframework.web.bind.annotation.*;
@@ -38,6 +39,20 @@ public class StudentController {
     @GetMapping("/sections")
     public List<String> getSectionsByClassName(@RequestParam String className) {
         return repository.findDistinctSectionsByClassName(className);
+    }
+
+
+    @GetMapping("/search")
+    public List<StudentSearchDTO> searchStudents(
+            @RequestParam String className,
+            @RequestParam String section,
+            @RequestParam(required = false, defaultValue = "") String query
+    ) {
+        return repository.searchStudentsForReport(
+                className,
+                section,
+                query == null ? "" : query.trim()
+        );
     }
 
     @PostMapping("/bulk")

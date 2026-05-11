@@ -852,4 +852,99 @@ public class AttendanceController {
                 ))
                 .toList();
     }
+
+    @GetMapping("/student-report")
+    public StudentAttendanceReportDTO getSingleStudentAttendanceReport(
+            @RequestParam Long studentId,
+            @RequestParam String fromDate,
+            @RequestParam String toDate,
+            @RequestParam(required = false, defaultValue = "Daily") String rangeType
+    ) {
+        LocalDate start = LocalDate.parse(fromDate);
+        LocalDate end = LocalDate.parse(toDate);
+
+        if (end.isBefore(start)) {
+            throw new IllegalArgumentException("toDate must be greater than or equal to fromDate");
+        }
+
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new RuntimeException("Student not found with id: " + studentId));
+
+        List<Attendance> attendanceList =
+                attendanceRepository.findByStudentIdAndAttendanceDateBetween(studentId, start, end);
+
+        Map<LocalDate, List<Attendance>> byDate = new HashMap<>();
+
+        for (Attendance attendance : attendanceList) {
+            byDate.computeIfAbsent(attendance.getAttendanceDate(), k -> new ArrayList<>())
+                    .add(attendance);
+        }
+
+        List<StudentDailyAttendanceDTO> dailyRecords = new ArrayList<>();
+
+        LocalDate cursor = start;
+        while (!cursor.isAfter(end)) {
+            List<Attendance> dayRecords = byDate.getOrDefault(cursor, new ArrayList<>());
+
+            String status = "NOT_MARKED";
+            String subjectName = "";
+            String teacherName = "";
+
+            if (!dayRecords.isEmpty()) {
+                boolean hasPresent = dayRecords.stream().anyMatch(a -> a.getStatus() == AttendanceStatus.PRESENT);
+                boolean hasLate = dayRecords.stream().anyMatch(a -> a.getStatus() == AttendanceStatus.LATE);
+                boolean allAbsent = dayRecords.stream().allMatch(a -> a.getStatus() == AttendanceStatus.ABSENT);
+
+                if (hasPresent) {
+                    status = "PRESENT";
+                } else if (hasLate) {
+                    status = "LATE";
+                } else if (allAbsent) {
+                    status = "ABSENT";
+                }
+
+                Attendance firstRecord = dayRecords.get(0);
+                subjectName = firstRecord.getSubjectName();
+                teacherName = firstRecord.getTeacherName();
+            }
+
+            dailyRecords.add(new StudentDailyAttendanceDTO(
+                    cursor.toString(),
+                    status,
+                    subjectName,
+                    teacherName
+            ));
+
+            cursor = cursor.plusDays(1);
+        }
+
+        long totalWorkingDays = dailyRecords.size();
+        long presentDays = dailyRecords.stream()
+                .filter(item -> "PRESENT".equals(item.getStatus()))
+                .count();
+        long lateDays = dailyRecords.stream()
+                .filter(item -> "LATE".equals(item.getStatus()))
+                .count();
+        long absentDays = dailyRecords.stream()
+                .filter(item -> "ABSENT".equals(item.getStatus()))
+                .count();
+
+        return new StudentAttendanceReportDTO(
+                student.getId(),
+                student.getName(),
+                student.getAdmissionNumber(),
+                student.getRollNumber(),
+                student.getClassName(),
+                student.getSection(),
+                start.toString(),
+                end.toString(),
+                rangeType,
+                totalWorkingDays,
+                presentDays,
+                absentDays,
+                lateDays,
+                dailyRecords
+        );
+    }
+
 }

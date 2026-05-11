@@ -14,6 +14,10 @@ public class Student {
     private String className;
     private String section;
 
+    private String admissionNumber;
+
+    private String rollNumber;
+
     public Long getId() {
         return id;
     }
@@ -44,5 +48,21 @@ public class Student {
 
     public void setSection(String section) {
         this.section = section;
+    }
+
+    public String getAdmissionNumber() {
+        return admissionNumber;
+    }
+
+    public void setAdmissionNumber(String admissionNumber) {
+        this.admissionNumber = admissionNumber;
+    }
+
+    public String getRollNumber() {
+        return rollNumber;
+    }
+
+    public void setRollNumber(String rollNumber) {
+        this.rollNumber = rollNumber;
     }
 }
