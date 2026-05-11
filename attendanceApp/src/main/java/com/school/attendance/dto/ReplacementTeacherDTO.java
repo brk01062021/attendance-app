@@ -13,6 +13,8 @@ public class ReplacementTeacherDTO {
     private String nextClass;
     private String lastClassEnded;
 
+    private Integer gapScore;
+
     public ReplacementTeacherDTO() {
     }
 
@@ -82,5 +84,13 @@ public class ReplacementTeacherDTO {
 
     public void setLastClassEnded(String lastClassEnded) {
         this.lastClassEnded = lastClassEnded;
+    }
+
+    public Integer getGapScore() {
+        return gapScore;
+    }
+
+    public void setGapScore(Integer gapScore) {
+        this.gapScore = gapScore;
     }
 }

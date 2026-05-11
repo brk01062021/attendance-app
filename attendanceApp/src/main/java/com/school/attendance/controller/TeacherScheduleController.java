@@ -307,7 +307,13 @@ public class TeacherScheduleController {
                     ? -1
                     : Duration.between(leaveSchedule.getEndTime(), nextStartTime).toMinutes();
 
+            int gapScore = (int) (
+                    (beforeGap < 0 ? 999 : beforeGap)
+                            + (afterGap < 0 ? 999 : afterGap)
+            );
+
             teacher.setDailyWorkload(dailyWorkload);
+            teacher.setGapScore(gapScore);
 
             if (beforeGap < 0) {
                 teacher.setLastClassEnded("First class today");
@@ -352,7 +358,14 @@ public class TeacherScheduleController {
         }
 
         Comparator<ReplacementTeacherDTO> replacementSorter =
-                Comparator.comparingInt(ReplacementTeacherDTO::getDailyWorkload);
+                Comparator
+                        .comparingInt(ReplacementTeacherDTO::getDailyWorkload)
+                        .thenComparing(
+                                Comparator.comparingInt(
+                                        ReplacementTeacherDTO::getGapScore
+                                ).reversed()
+                        )
+                        .thenComparing(ReplacementTeacherDTO::getTeacherName);
 
         bestMatch.sort(replacementSorter);
         sameClass.sort(replacementSorter);
