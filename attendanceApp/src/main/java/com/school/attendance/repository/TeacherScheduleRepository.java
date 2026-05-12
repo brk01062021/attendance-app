@@ -1,6 +1,7 @@
 package com.school.attendance.repository;
 
 import com.school.attendance.entity.TeacherSchedule;
+import com.school.attendance.entity.TeacherScheduleStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDate;
@@ -42,8 +43,6 @@ public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule
             LocalDate toDate
     );
 
-    // New methods for Auto Assign Best Matches
-
     List<TeacherSchedule> findByScheduleDateAndReplacementTeacherIdIsNull(
             LocalDate scheduleDate
     );
@@ -59,4 +58,25 @@ public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule
             LocalTime endTime,
             Long teacherId
     );
+
+    // Teacher Insight Report additions.
+    List<TeacherSchedule> findByTeacherIdOrderByScheduleDateDescStartTimeAsc(Long teacherId);
+
+    List<TeacherSchedule> findByTeacherIdAndScheduleDateBetweenOrderByScheduleDateDescStartTimeAsc(
+            Long teacherId,
+            LocalDate fromDate,
+            LocalDate toDate
+    );
+
+    List<TeacherSchedule> findByReplacementTeacherIdOrderByScheduleDateDescStartTimeAsc(Long replacementTeacherId);
+
+    List<TeacherSchedule> findByReplacementTeacherIdAndScheduleDateBetweenOrderByScheduleDateDescStartTimeAsc(
+            Long replacementTeacherId,
+            LocalDate fromDate,
+            LocalDate toDate
+    );
+
+    Integer countByTeacherIdAndStatus(Long teacherId, TeacherScheduleStatus status);
+
+    Integer countByReplacementTeacherId(Long replacementTeacherId);
 }

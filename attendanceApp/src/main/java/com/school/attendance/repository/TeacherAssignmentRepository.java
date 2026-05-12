@@ -1,9 +1,11 @@
 package com.school.attendance.repository;
 
 import com.school.attendance.dto.ReplacementTeacherDTO;
+import com.school.attendance.dto.TeacherSearchDTO;
 import com.school.attendance.entity.TeacherAssignment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
@@ -17,6 +19,23 @@ public interface TeacherAssignmentRepository extends JpaRepository<TeacherAssign
 
     @Query("SELECT DISTINCT t.section FROM TeacherAssignment t WHERE t.teacherId = :teacherId AND t.subjectName = :subjectName AND t.className = :className ORDER BY t.section")
     List<String> findSectionsByTeacherIdSubjectNameAndClassName(Long teacherId, String subjectName, String className);
+
+    // Teacher Insight Report - search teachers by name or id text.
+    @Query("""
+            SELECT DISTINCT new com.school.attendance.dto.TeacherSearchDTO(
+                t.teacherId,
+                t.teacherName
+            )
+            FROM TeacherAssignment t
+            WHERE :keyword IS NULL
+               OR :keyword = ''
+               OR LOWER(t.teacherName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR STR(t.teacherId) LIKE CONCAT('%', :keyword, '%')
+            ORDER BY t.teacherName ASC
+            """)
+    List<TeacherSearchDTO> searchTeachers(@Param("keyword") String keyword);
+
+    List<TeacherAssignment> findByTeacherIdOrderByClassNameAscSectionAscSubjectNameAsc(Long teacherId);
 
     @Query("""
                 SELECT new com.school.attendance.dto.ReplacementTeacherDTO(
@@ -33,8 +52,6 @@ public interface TeacherAssignmentRepository extends JpaRepository<TeacherAssign
             """)
     List<ReplacementTeacherDTO> findAllPossibleReplacementTeachers(Long absentTeacherId);
 
-    // Auto Assign Best Matches - Priority 1:
-    // Same class + same section + same subject
     @Query("""
                 SELECT new com.school.attendance.dto.ReplacementTeacherDTO(
                     t.teacherId,
@@ -58,8 +75,6 @@ public interface TeacherAssignmentRepository extends JpaRepository<TeacherAssign
             String subjectName
     );
 
-    // Auto Assign Best Matches - Priority 2:
-    // Same class + same section
     @Query("""
                 SELECT new com.school.attendance.dto.ReplacementTeacherDTO(
                     t.teacherId,
@@ -81,8 +96,6 @@ public interface TeacherAssignmentRepository extends JpaRepository<TeacherAssign
             String section
     );
 
-    // Auto Assign Best Matches - Priority 3:
-    // Any other teacher
     @Query("""
                 SELECT new com.school.attendance.dto.ReplacementTeacherDTO(
                     t.teacherId,
