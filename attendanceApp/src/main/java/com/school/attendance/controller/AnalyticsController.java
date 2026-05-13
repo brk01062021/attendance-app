@@ -4,6 +4,7 @@ import com.school.attendance.dto.AnalyticsSummaryDTO;
 import com.school.attendance.dto.AttendanceTrendDTO;
 import com.school.attendance.dto.ClassAttendanceTrendDTO;
 import com.school.attendance.dto.TeacherReplacementTrendDTO;
+import com.school.attendance.dto.SectionAnalyticsDTO;
 import com.school.attendance.service.AnalyticsService;
 import org.springframework.web.bind.annotation.*;
 
@@ -42,6 +43,32 @@ public class AnalyticsController {
             @RequestParam LocalDate date
     ) {
         return analyticsService.getClassAttendanceTrend(date);
+    }
+
+
+    @GetMapping("/attendance/monthly")
+    public List<AttendanceTrendDTO> getMonthlyAttendanceTrend(
+            @RequestParam String month,
+            @RequestParam(required = false) String className,
+            @RequestParam(required = false) String section
+    ) {
+        return analyticsService.getMonthlyAttendanceTrend(month, className, section);
+    }
+
+    @GetMapping("/class-comparison/monthly")
+    public List<ClassAttendanceTrendDTO> getMonthlyClassComparison(
+            @RequestParam String month
+    ) {
+        return analyticsService.getMonthlyClassComparison(month);
+    }
+
+
+    @GetMapping("/section-comparison")
+    public List<SectionAnalyticsDTO> getSectionComparison(
+            @RequestParam String month,
+            @RequestParam(required = false) String className
+    ) {
+        return analyticsService.getMonthlySectionComparison(month, className);
     }
 
     @GetMapping("/replacement-trend")
