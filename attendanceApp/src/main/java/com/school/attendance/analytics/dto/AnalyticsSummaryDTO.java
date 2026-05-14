@@ -1,4 +1,4 @@
-package com.school.attendance.dto;
+package com.school.attendance.analytics.dto;
 
 public class AnalyticsSummaryDTO {
     private Long totalStudents;

@@ -1,11 +1,11 @@
-package com.school.attendance.controller;
+package com.school.attendance.analytics.controller;
 
-import com.school.attendance.dto.AnalyticsSummaryDTO;
-import com.school.attendance.dto.AttendanceTrendDTO;
-import com.school.attendance.dto.ClassAttendanceTrendDTO;
-import com.school.attendance.dto.TeacherReplacementTrendDTO;
+import com.school.attendance.analytics.dto.AnalyticsSummaryDTO;
+import com.school.attendance.analytics.dto.AttendanceTrendDTO;
+import com.school.attendance.analytics.dto.ClassAttendanceTrendDTO;
+import com.school.attendance.analytics.dto.TeacherReplacementTrendDTO;
 import com.school.attendance.dto.SectionAnalyticsDTO;
-import com.school.attendance.service.AnalyticsService;
+import com.school.attendance.analytics.service.AnalyticsService;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -45,7 +45,6 @@ public class AnalyticsController {
         return analyticsService.getClassAttendanceTrend(date);
     }
 
-
     @GetMapping("/attendance/monthly")
     public List<AttendanceTrendDTO> getMonthlyAttendanceTrend(
             @RequestParam String month,
@@ -61,7 +60,6 @@ public class AnalyticsController {
     ) {
         return analyticsService.getMonthlyClassComparison(month);
     }
-
 
     @GetMapping("/section-comparison")
     public List<SectionAnalyticsDTO> getSectionComparison(

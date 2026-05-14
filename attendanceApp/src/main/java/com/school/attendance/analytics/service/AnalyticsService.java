@@ -1,9 +1,9 @@
-package com.school.attendance.service;
+package com.school.attendance.analytics.service;
 
-import com.school.attendance.dto.AnalyticsSummaryDTO;
-import com.school.attendance.dto.AttendanceTrendDTO;
-import com.school.attendance.dto.ClassAttendanceTrendDTO;
-import com.school.attendance.dto.TeacherReplacementTrendDTO;
+import com.school.attendance.analytics.dto.AnalyticsSummaryDTO;
+import com.school.attendance.analytics.dto.AttendanceTrendDTO;
+import com.school.attendance.analytics.dto.ClassAttendanceTrendDTO;
+import com.school.attendance.analytics.dto.TeacherReplacementTrendDTO;
 import com.school.attendance.dto.SectionAnalyticsDTO;
 import com.school.attendance.entity.Attendance;
 import com.school.attendance.entity.AttendanceStatus;

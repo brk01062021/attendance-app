@@ -1,21 +1,24 @@
-package com.school.attendance.dto;
+package com.school.attendance.analytics.dto;
 
-public class AttendanceTrendDTO {
-    private String date;
+public class ClassAttendanceTrendDTO {
+    private String className;
+    private String section;
     private Long presentCount;
     private Long absentCount;
     private Long totalCount;
     private Double attendancePercentage;
 
-    public AttendanceTrendDTO(String date, Long presentCount, Long absentCount, Long totalCount, Double attendancePercentage) {
-        this.date = date;
+    public ClassAttendanceTrendDTO(String className, String section, Long presentCount, Long absentCount, Long totalCount, Double attendancePercentage) {
+        this.className = className;
+        this.section = section;
         this.presentCount = presentCount;
         this.absentCount = absentCount;
         this.totalCount = totalCount;
         this.attendancePercentage = attendancePercentage;
     }
 
-    public String getDate() { return date; }
+    public String getClassName() { return className; }
+    public String getSection() { return section; }
     public Long getPresentCount() { return presentCount; }
     public Long getAbsentCount() { return absentCount; }
     public Long getTotalCount() { return totalCount; }
