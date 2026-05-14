@@ -1,5 +1,6 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.common.constants.AppConstants;
 import com.school.attendance.dto.*;
 import com.school.attendance.entity.Notification;
 import com.school.attendance.entity.TeacherSchedule;
@@ -934,7 +935,7 @@ public class TeacherScheduleController {
 
         Notification notification = new Notification();
         notification.setUserId(replacementTeacherId);
-        notification.setRole("TEACHER");
+        notification.setRole(AppConstants.ROLE_TEACHER);
         notification.setTitle("Replacement Assigned");
         notification.setMessage(
                 "You have been assigned Class "
@@ -947,7 +948,7 @@ public class TeacherScheduleController {
                         + schedule.getStartTime()
                         + "."
         );
-        notification.setType("REPLACEMENT_ASSIGNED");
+        notification.setType(AppConstants.NOTIFICATION_REPLACEMENT_ASSIGNED);
 
         notificationRepository.save(notification);
     }

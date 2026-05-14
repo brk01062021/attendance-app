@@ -1,5 +1,6 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.common.constants.AppConstants;
 import com.school.attendance.dto.SchoolNoticeRequest;
 import com.school.attendance.entity.AppUser;
 import com.school.attendance.entity.Notification;
@@ -81,13 +82,13 @@ public class SchoolNoticeController {
 
         List<Notification> notifications = new ArrayList<>();
 
-        if ("ALL".equals(targetRole) || "STUDENT".equals(targetRole)) {
+        if (AppConstants.ROLE_ALL.equals(targetRole) || AppConstants.ROLE_STUDENT.equals(targetRole)) {
             List<Student> students = studentRepository.findAllByOrderByClassNameAscSectionAscNameAsc();
 
             for (Student student : students) {
                 notifications.add(buildNotification(
                         student.getId(),
-                        "STUDENT",
+                        AppConstants.ROLE_STUDENT,
                         notice.getSchoolId(),
                         student.getClassName(),
                         student.getSection(),
@@ -98,13 +99,13 @@ public class SchoolNoticeController {
             }
         }
 
-        if ("ALL".equals(targetRole) || "TEACHER".equals(targetRole)) {
-            List<AppUser> teachers = appUserRepository.findByRoleIgnoreCase("TEACHER");
+        if (AppConstants.ROLE_ALL.equals(targetRole) || AppConstants.ROLE_TEACHER.equals(targetRole)) {
+            List<AppUser> teachers = appUserRepository.findByRoleIgnoreCase(AppConstants.ROLE_TEACHER);
 
             for (AppUser teacher : teachers) {
                 notifications.add(buildNotification(
                         teacher.getId(),
-                        "TEACHER",
+                        AppConstants.ROLE_TEACHER,
                         notice.getSchoolId(),
                         null,
                         null,
@@ -115,13 +116,13 @@ public class SchoolNoticeController {
             }
         }
 
-        if ("ALL".equals(targetRole) || "PARENT".equals(targetRole)) {
-            List<AppUser> parents = appUserRepository.findByRoleIgnoreCase("PARENT");
+        if (AppConstants.ROLE_ALL.equals(targetRole) || AppConstants.ROLE_PARENT.equals(targetRole)) {
+            List<AppUser> parents = appUserRepository.findByRoleIgnoreCase(AppConstants.ROLE_PARENT);
 
             for (AppUser parent : parents) {
                 notifications.add(buildNotification(
                         parent.getId(),
-                        "PARENT",
+                        AppConstants.ROLE_PARENT,
                         notice.getSchoolId(),
                         null,
                         null,
@@ -165,7 +166,7 @@ public class SchoolNoticeController {
 
     private String normalizeTargetRole(String targetRole) {
         if (targetRole == null || targetRole.trim().isEmpty()) {
-            return "ALL";
+            return AppConstants.ROLE_ALL;
         }
 
         return targetRole.trim().toUpperCase();

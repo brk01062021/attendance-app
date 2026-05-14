@@ -1,5 +1,6 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.common.constants.AppConstants;
 import com.school.attendance.dto.*;
 import com.school.attendance.entity.TeacherAssignment;
 import com.school.attendance.entity.TeacherSchedule;
@@ -163,8 +164,8 @@ public class TeacherInsightController {
                     dto.setLeaveType(schedule.getStatus() == null ? null : schedule.getStatus().name());
                     dto.setReason(null);
                     dto.setStatus(schedule.getReplacementTeacherId() == null
-                            ? "REPLACEMENT_PENDING"
-                            : "REPLACEMENT_ASSIGNED");
+                            ? AppConstants.REPLACEMENT_STATUS_PENDING
+                            : AppConstants.NOTIFICATION_REPLACEMENT_ASSIGNED);
                     dto.setReplacementTeacherId(schedule.getReplacementTeacherId());
                     dto.setReplacementTeacherName(schedule.getReplacementTeacherName());
                     return dto;

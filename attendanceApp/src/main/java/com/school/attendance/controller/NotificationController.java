@@ -1,5 +1,6 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.common.constants.AppConstants;
 import com.school.attendance.dto.BulkNotificationRequest;
 import com.school.attendance.entity.AppUser;
 import com.school.attendance.entity.Notification;
@@ -168,7 +169,7 @@ public class NotificationController {
         for (Student student : students) {
             notifications.add(buildNotification(
                     student.getId(),
-                    "STUDENT",
+                    AppConstants.ROLE_STUDENT,
                     request.getSchoolId(),
                     student.getClassName(),
                     student.getSection(),

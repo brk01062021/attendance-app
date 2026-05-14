@@ -1,5 +1,6 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.common.constants.AppConstants;
 import com.school.attendance.dto.*;
 import com.school.attendance.entity.Attendance;
 import com.school.attendance.entity.AttendanceStatus;
@@ -446,7 +447,7 @@ public class AttendanceController {
             Notification notification = new Notification();
 
             notification.setUserId(student.getId());
-            notification.setRole("STUDENT");
+            notification.setRole(AppConstants.ROLE_STUDENT);
             notification.setSchoolId(null);
             notification.setClassName(student.getClassName());
             notification.setSection(student.getSection());
@@ -457,7 +458,7 @@ public class AttendanceController {
                             + "-"
                             + section
             );
-            notification.setType("ATTENDANCE_REPORT");
+            notification.setType(AppConstants.NOTIFICATION_ATTENDANCE_REPORT);
             notification.setRead(false);
             notification.setCreatedAt(LocalDateTime.now());
 
@@ -483,7 +484,7 @@ public class AttendanceController {
             Notification notification = new Notification();
 
             notification.setUserId(student.getId());
-            notification.setRole("STUDENT");
+            notification.setRole(AppConstants.ROLE_STUDENT);
             notification.setSchoolId(null);
             notification.setClassName(student.getClassName());
             notification.setSection(student.getSection());
@@ -495,7 +496,7 @@ public class AttendanceController {
                             + year
                             + " is now available."
             );
-            notification.setType("ATTENDANCE_REPORT");
+            notification.setType(AppConstants.NOTIFICATION_ATTENDANCE_REPORT);
             notification.setRead(false);
             notification.setCreatedAt(LocalDateTime.now());
 
@@ -886,7 +887,7 @@ public class AttendanceController {
         while (!cursor.isAfter(end)) {
             List<Attendance> dayRecords = byDate.getOrDefault(cursor, new ArrayList<>());
 
-            String status = "NOT_MARKED";
+            String status = AppConstants.NOT_MARKED;
             String subjectName = "";
             String teacherName = "";
 
@@ -896,11 +897,11 @@ public class AttendanceController {
                 boolean allAbsent = dayRecords.stream().allMatch(a -> a.getStatus() == AttendanceStatus.ABSENT);
 
                 if (hasPresent) {
-                    status = "PRESENT";
+                    status = AppConstants.PRESENT;
                 } else if (hasLate) {
-                    status = "LATE";
+                    status = AppConstants.LATE;
                 } else if (allAbsent) {
-                    status = "ABSENT";
+                    status = AppConstants.ABSENT;
                 }
 
                 Attendance firstRecord = dayRecords.get(0);
@@ -920,13 +921,13 @@ public class AttendanceController {
 
         long totalWorkingDays = dailyRecords.size();
         long presentDays = dailyRecords.stream()
-                .filter(item -> "PRESENT".equals(item.getStatus()))
+                .filter(item -> AppConstants.PRESENT.equals(item.getStatus()))
                 .count();
         long lateDays = dailyRecords.stream()
-                .filter(item -> "LATE".equals(item.getStatus()))
+                .filter(item -> AppConstants.LATE.equals(item.getStatus()))
                 .count();
         long absentDays = dailyRecords.stream()
-                .filter(item -> "ABSENT".equals(item.getStatus()))
+                .filter(item -> AppConstants.ABSENT.equals(item.getStatus()))
                 .count();
 
         return new StudentAttendanceReportDTO(
