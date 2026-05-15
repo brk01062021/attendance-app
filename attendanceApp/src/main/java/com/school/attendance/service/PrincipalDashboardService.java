@@ -2,8 +2,10 @@ package com.school.attendance.service;
 
 import com.school.attendance.entity.*;
 import com.school.attendance.dto.ClassComparisonDTO;
+import com.school.attendance.dto.ExecutiveOverviewDTO;
 import com.school.attendance.dto.PrincipalDashboardSummaryDTO;
 import com.school.attendance.dto.PrincipalRiskAlertDTO;
+import com.school.attendance.dto.TeacherWorkloadDTO;
 import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.repository.AttendanceRepository;
 import com.school.attendance.repository.StudentRepository;
@@ -119,6 +121,94 @@ public class PrincipalDashboardService {
         return result;
     }
 
+
+    public ExecutiveOverviewDTO getExecutiveOverview(String month) {
+        YearMonth yearMonth = parseMonth(month);
+        LocalDate start = yearMonth.atDay(1);
+        LocalDate end = yearMonth.atEndOfMonth();
+
+        List<Attendance> records = attendanceRepository.findByAttendanceDateBetween(start, end);
+        long present = records.stream().filter(a -> a.getStatus() == AttendanceStatus.PRESENT).count();
+        long absent = records.stream().filter(a -> a.getStatus() == AttendanceStatus.ABSENT).count();
+        long total = present + absent;
+        double overallAttendance = total == 0 ? 0.0 : round((present * 100.0) / total);
+
+        List<ClassComparisonDTO> classComparisons = getClassComparison(month, null, null, null, null);
+        long classesBelowThreshold = classComparisons.stream().filter(c -> c.getAttendancePercentage() > 0 && c.getAttendancePercentage() < 75.0).count();
+        String topClass = classComparisons.stream()
+                .max(Comparator.comparing(ClassComparisonDTO::getAttendancePercentage))
+                .map(c -> safeClassLabel(c.getClassName(), c.getSection()))
+                .orElse("No data");
+        String weakestSection = classComparisons.stream()
+                .filter(c -> c.getTotalMarked() > 0)
+                .min(Comparator.comparing(ClassComparisonDTO::getAttendancePercentage))
+                .map(c -> safeClassLabel(c.getClassName(), c.getSection()))
+                .orElse("No data");
+
+        List<TeacherWorkloadDTO> workload = getTeacherWorkload(month);
+        long teachersWithLeaveLoad = workload.stream().filter(t -> t.getPlannedLeaves() + t.getUnplannedLeaves() >= 3).count();
+        long replacementStressTeachers = workload.stream().filter(t -> t.getReplacementPeriods() >= 5 || "HIGH".equals(t.getRiskLevel())).count();
+        double replacementStressIndex = workload.isEmpty() ? 0.0 : round(workload.stream().mapToDouble(TeacherWorkloadDTO::getWorkloadScore).average().orElse(0.0));
+
+        return new ExecutiveOverviewDTO(
+                overallAttendance,
+                countLowAttendanceStudents(yearMonth, 75.0),
+                classesBelowThreshold,
+                teachersWithLeaveLoad,
+                replacementStressTeachers,
+                getRiskAlerts(month).stream().filter(a -> "HIGH".equals(a.getSeverity())).count(),
+                topClass,
+                weakestSection,
+                replacementStressIndex
+        );
+    }
+
+    public List<TeacherWorkloadDTO> getTeacherWorkload(String month) {
+        YearMonth yearMonth = parseMonth(month);
+        LocalDate start = yearMonth.atDay(1);
+        LocalDate end = yearMonth.atEndOfMonth();
+        List<TeacherSchedule> schedules = teacherScheduleRepository.findByScheduleDateBetweenOrderByScheduleDateAscStartTimeAscTeacherNameAsc(start, end);
+        List<AppUser> teachers = appUserRepository.findByRoleIgnoreCase("TEACHER");
+
+        Map<Long, String> teacherNames = new LinkedHashMap<>();
+        for (AppUser teacher : teachers) {
+            Long id = teacher.getTeacherId() != null ? teacher.getTeacherId() : teacher.getId();
+            if (id != null) teacherNames.put(id, safeText(teacher.getTeacherName()).isBlank() ? safeText(teacher.getUsername()) : safeText(teacher.getTeacherName()));
+        }
+        for (TeacherSchedule schedule : schedules) {
+            if (schedule.getTeacherId() != null) teacherNames.putIfAbsent(schedule.getTeacherId(), safeText(schedule.getTeacherName()));
+            if (schedule.getReplacementTeacherId() != null) teacherNames.putIfAbsent(schedule.getReplacementTeacherId(), safeText(schedule.getReplacementTeacherName()));
+        }
+
+        List<TeacherWorkloadDTO> result = new ArrayList<>();
+        for (Map.Entry<Long, String> entry : teacherNames.entrySet()) {
+            Long teacherId = entry.getKey();
+            long scheduled = schedules.stream().filter(s -> teacherId.equals(s.getTeacherId())).count();
+            long replacement = schedules.stream().filter(s -> teacherId.equals(s.getReplacementTeacherId())).count();
+            long planned = schedules.stream().filter(s -> teacherId.equals(s.getTeacherId()) && s.getStatus() == TeacherScheduleStatus.PLANNED_LEAVE).map(TeacherSchedule::getScheduleDate).distinct().count();
+            long unplanned = schedules.stream().filter(s -> teacherId.equals(s.getTeacherId()) && s.getStatus() == TeacherScheduleStatus.UNPLANNED_LEAVE).map(TeacherSchedule::getScheduleDate).distinct().count();
+            double score = round(scheduled + (replacement * 1.5) + (unplanned * 2.0));
+            String risk = score >= 45 || replacement >= 12 || unplanned >= 4 ? "HIGH" : (score >= 25 || replacement >= 5 || planned + unplanned >= 3 ? "MEDIUM" : "LOW");
+            result.add(new TeacherWorkloadDTO(teacherId, entry.getValue(), scheduled, replacement, planned, unplanned, score, risk));
+        }
+        return result.stream()
+                .sorted(Comparator.comparing(TeacherWorkloadDTO::getWorkloadScore).reversed())
+                .collect(Collectors.toList());
+    }
+
+    public List<PrincipalRiskAlertDTO> getExecutiveAlerts(String month) {
+        List<PrincipalRiskAlertDTO> alerts = new ArrayList<>(getRiskAlerts(month));
+        getTeacherWorkload(month).stream().limit(5).forEach(t -> {
+            if (!"LOW".equals(t.getRiskLevel())) {
+                alerts.add(new PrincipalRiskAlertDTO("TEACHER_WORKLOAD", t.getTeacherName(), "Workload score " + t.getWorkloadScore() + " with " + t.getReplacementPeriods() + " replacement period(s)", t.getRiskLevel(), t.getWorkloadScore()));
+            }
+        });
+        return alerts.stream()
+                .sorted(Comparator.comparing(PrincipalRiskAlertDTO::getSeverity).thenComparing(PrincipalRiskAlertDTO::getScore, Comparator.nullsLast(Comparator.reverseOrder())))
+                .limit(25)
+                .collect(Collectors.toList());
+    }
+
     private void buildStudentRiskAlerts(LocalDate start, LocalDate end, List<PrincipalRiskAlertDTO> alerts) {
         Map<Long, List<Attendance>> byStudent = attendanceRepository.findByAttendanceDateBetween(start, end).stream()
                 .filter(a -> a.getStudent() != null)
@@ -224,6 +314,12 @@ public class PrincipalDashboardService {
 
     private String key(String className, String section) {
         return safeText(className).trim() + "|" + safeText(section).trim();
+    }
+
+    private String safeClassLabel(String className, String section) {
+        String c = safeText(className).trim();
+        String s = safeText(section).trim();
+        return s.isBlank() ? c : c + "-" + s;
     }
 
     private String safeText(String value) { return value == null ? "" : value; }

@@ -1,13 +1,14 @@
 package com.school.attendance.controller;
 
 import com.school.attendance.dto.ClassComparisonDTO;
+import com.school.attendance.dto.ExecutiveOverviewDTO;
 import com.school.attendance.dto.PrincipalDashboardSummaryDTO;
 import com.school.attendance.dto.PrincipalRiskAlertDTO;
+import com.school.attendance.dto.TeacherWorkloadDTO;
 import com.school.attendance.service.PrincipalDashboardService;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
-import com.school.attendance.service.PrincipalDashboardService;
 import java.util.List;
 
 @RestController
@@ -40,5 +41,20 @@ public class PrincipalDashboardController {
             @RequestParam(required = false) String classB
     ) {
         return principalDashboardService.getClassComparison(month, className, section, classA, classB);
+    }
+
+    @GetMapping("/executive-overview")
+    public ExecutiveOverviewDTO getExecutiveOverview(@RequestParam(required = false) String month) {
+        return principalDashboardService.getExecutiveOverview(month);
+    }
+
+    @GetMapping("/teacher-workload")
+    public List<TeacherWorkloadDTO> getTeacherWorkload(@RequestParam(required = false) String month) {
+        return principalDashboardService.getTeacherWorkload(month);
+    }
+
+    @GetMapping("/executive-alerts")
+    public List<PrincipalRiskAlertDTO> getExecutiveAlerts(@RequestParam(required = false) String month) {
+        return principalDashboardService.getExecutiveAlerts(month);
     }
 }
