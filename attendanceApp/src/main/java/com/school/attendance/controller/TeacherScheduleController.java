@@ -316,6 +316,23 @@ public class TeacherScheduleController {
             teacher.setDailyWorkload(dailyWorkload);
             teacher.setGapScore(gapScore);
 
+            int consecutivePeriods = calculateConsecutivePeriodsForTeacher(sameDaySchedules, teacher.getTeacherId());
+            int replacementLoadToday = calculateReplacementLoadForTeacher(sameDaySchedules, teacher.getTeacherId());
+            boolean subjectMatch = leaveSchedule.getSubjectName() != null
+                    && teacher.getSubjectName() != null
+                    && leaveSchedule.getSubjectName().equalsIgnoreCase(teacher.getSubjectName());
+            int overloadScore = dailyWorkload * 10 + replacementLoadToday * 12 + Math.max(0, consecutivePeriods - 3) * 10;
+            int priorityScore = 1000 - overloadScore + Math.min(gapScore, 300);
+            if (subjectMatch) {
+                priorityScore += 80;
+            }
+
+            teacher.setConsecutivePeriods(consecutivePeriods);
+            teacher.setOverloadScore(overloadScore);
+            teacher.setFatigueRisk(overloadScore >= 70);
+            teacher.setPreferredSubjectMatch(subjectMatch);
+            teacher.setReplacementPriorityScore(priorityScore);
+
             if (beforeGap < 0) {
                 teacher.setLastClassEnded("First class today");
             } else if (beforeGap >= 60) {
@@ -360,12 +377,19 @@ public class TeacherScheduleController {
 
         Comparator<ReplacementTeacherDTO> replacementSorter =
                 Comparator
-                        .comparingInt(ReplacementTeacherDTO::getDailyWorkload)
-                        .thenComparing(
-                                Comparator.comparingInt(
-                                        ReplacementTeacherDTO::getGapScore
-                                ).reversed()
+                        .comparing(
+                                ReplacementTeacherDTO::getFatigueRisk,
+                                Comparator.nullsLast(Comparator.naturalOrder())
                         )
+                        .thenComparing(Comparator.comparing(
+                                ReplacementTeacherDTO::getPreferredSubjectMatch,
+                                Comparator.nullsLast(Comparator.reverseOrder())
+                        ))
+                        .thenComparing(Comparator.comparing(
+                                ReplacementTeacherDTO::getReplacementPriorityScore,
+                                Comparator.nullsLast(Comparator.reverseOrder())
+                        ))
+                        .thenComparingInt(ReplacementTeacherDTO::getDailyWorkload)
                         .thenComparing(ReplacementTeacherDTO::getTeacherName);
 
         bestMatch.sort(replacementSorter);
@@ -525,6 +549,43 @@ public class TeacherScheduleController {
                 totalUnassigned - assigned,
                 "Auto assign completed"
         );
+    }
+
+
+    private int calculateConsecutivePeriodsForTeacher(List<TeacherSchedule> sameDaySchedules, Long teacherId) {
+        List<TeacherSchedule> teacherSchedules = sameDaySchedules.stream()
+                .filter(schedule -> schedule.getTeacherId().equals(teacherId))
+                .sorted(Comparator.comparing(TeacherSchedule::getStartTime))
+                .toList();
+
+        if (teacherSchedules.isEmpty()) {
+            return 0;
+        }
+
+        int max = 1;
+        int current = 1;
+
+        for (int index = 1; index < teacherSchedules.size(); index++) {
+            TeacherSchedule previous = teacherSchedules.get(index - 1);
+            TeacherSchedule next = teacherSchedules.get(index);
+            if (previous.getEndTime() != null
+                    && next.getStartTime() != null
+                    && !next.getStartTime().isAfter(previous.getEndTime())) {
+                current++;
+            } else {
+                current = 1;
+            }
+            max = Math.max(max, current);
+        }
+
+        return max;
+    }
+
+    private int calculateReplacementLoadForTeacher(List<TeacherSchedule> sameDaySchedules, Long teacherId) {
+        return (int) sameDaySchedules.stream()
+                .filter(schedule -> schedule.getReplacementTeacherId() != null
+                        && schedule.getReplacementTeacherId().equals(teacherId))
+                .count();
     }
 
     private boolean scheduleAvailableForReplacement(TeacherSchedule schedule) {

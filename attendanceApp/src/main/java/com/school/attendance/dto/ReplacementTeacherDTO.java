@@ -14,6 +14,11 @@ public class ReplacementTeacherDTO {
     private String lastClassEnded;
 
     private Integer gapScore;
+    private Integer overloadScore;
+    private Boolean fatigueRisk;
+    private Integer consecutivePeriods;
+    private Boolean preferredSubjectMatch;
+    private Integer replacementPriorityScore;
 
     public ReplacementTeacherDTO() {
     }
@@ -93,4 +98,15 @@ public class ReplacementTeacherDTO {
     public void setGapScore(Integer gapScore) {
         this.gapScore = gapScore;
     }
+
+    public Integer getOverloadScore() { return overloadScore; }
+    public void setOverloadScore(Integer overloadScore) { this.overloadScore = overloadScore; }
+    public Boolean getFatigueRisk() { return fatigueRisk; }
+    public void setFatigueRisk(Boolean fatigueRisk) { this.fatigueRisk = fatigueRisk; }
+    public Integer getConsecutivePeriods() { return consecutivePeriods; }
+    public void setConsecutivePeriods(Integer consecutivePeriods) { this.consecutivePeriods = consecutivePeriods; }
+    public Boolean getPreferredSubjectMatch() { return preferredSubjectMatch; }
+    public void setPreferredSubjectMatch(Boolean preferredSubjectMatch) { this.preferredSubjectMatch = preferredSubjectMatch; }
+    public Integer getReplacementPriorityScore() { return replacementPriorityScore; }
+    public void setReplacementPriorityScore(Integer replacementPriorityScore) { this.replacementPriorityScore = replacementPriorityScore; }
 }
