@@ -154,7 +154,7 @@ public class TimetableGenerationController {
         return timetableGenerationService.principalIntelligence(batchId);
     }
 
-    @GetMapping("/day18/live")
+    @GetMapping({"/day18/live", "/operations/live"})
     public TimetableLiveResponseDTO liveTimetable(
             @RequestParam(required = false) String batchId,
             @RequestParam(defaultValue = "ADMIN") String role,
@@ -165,7 +165,7 @@ public class TimetableGenerationController {
         return timetableGenerationService.liveTimetable(batchId, role, teacherId, className, section);
     }
 
-    @PostMapping("/day18/publish-lock/{batchId}")
+    @PostMapping({"/day18/publish-lock/{batchId}", "/operations/publish-lock/{batchId}"})
     public TimetablePublishResponseDTO publishLock(
             @PathVariable String batchId,
             @RequestParam(defaultValue = "ADMIN") String role,
@@ -174,7 +174,7 @@ public class TimetableGenerationController {
         return timetableGenerationService.publishLock(batchId, role, approvedBy);
     }
 
-    @PostMapping("/day18/swap/{batchId}")
+    @PostMapping({"/day18/swap/{batchId}", "/operations/swap/{batchId}"})
     public TimetableGenerationResponseDTO swapTimetableEntry(
             @PathVariable String batchId,
             @RequestParam(defaultValue = "ADMIN") String role,
@@ -183,7 +183,7 @@ public class TimetableGenerationController {
         return timetableGenerationService.swapTimetableEntry(batchId, request, role);
     }
 
-    @GetMapping("/day18/export/{batchId}")
+    @GetMapping({"/day18/export/{batchId}", "/operations/export/{batchId}"})
     public TimetableBinaryExportDTO binaryExport(
             @PathVariable String batchId,
             @RequestParam(defaultValue = "EXCEL") String format
@@ -191,12 +191,12 @@ public class TimetableGenerationController {
         return timetableGenerationService.binaryExport(batchId, format);
     }
 
-    @GetMapping("/day18/versions/{batchId}")
+    @GetMapping({"/day18/versions/{batchId}", "/operations/versions/{batchId}"})
     public List<TimetableVersionDTO> versions(@PathVariable String batchId) {
         return timetableGenerationService.versions(batchId);
     }
 
-    @PostMapping("/day18/rollback/{batchId}/{versionNumber}")
+    @PostMapping({"/day18/rollback/{batchId}/{versionNumber}", "/operations/rollback/{batchId}/{versionNumber}"})
     public TimetableVersionDTO rollback(
             @PathVariable String batchId,
             @PathVariable Integer versionNumber,
@@ -205,23 +205,23 @@ public class TimetableGenerationController {
         return timetableGenerationService.rollback(batchId, versionNumber, role);
     }
 
-    @GetMapping("/day18/notifications/{batchId}")
+    @GetMapping({"/day18/notifications/{batchId}", "/operations/notifications/{batchId}"})
     public List<TimetableNotificationDTO> notifications(@PathVariable String batchId) {
         return timetableGenerationService.notifications(batchId);
     }
 
-    @GetMapping("/day18/archives")
+    @GetMapping({"/day18/archives", "/operations/archives"})
     public List<TimetableArchiveSummaryDTO> archives() {
         return timetableGenerationService.archives();
     }
 
 
-    @GetMapping("/day18/principal-analytics")
+    @GetMapping({"/day18/principal-analytics", "/operations/principal-analytics"})
     public PrincipalTimetableIntelligenceDTO day18PrincipalAnalytics(@RequestParam String batchId) {
         return timetableGenerationService.principalIntelligence(batchId);
     }
 
-    @GetMapping("/day18/status/{batchId}")
+    @GetMapping({"/day18/status/{batchId}", "/operations/status/{batchId}"})
     public Map<String, Object> day18Status(@PathVariable String batchId) {
         return timetableGenerationService.day18Status(batchId);
     }
