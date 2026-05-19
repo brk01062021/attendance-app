@@ -2,6 +2,7 @@ package com.school.attendance.service;
 
 import com.school.attendance.dto.ClassTeacherPoolDTO;
 import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
+import com.school.attendance.dto.TimetableClassSectionReviewDTO;
 import com.school.attendance.dto.TimetableConflictDTO;
 import com.school.attendance.dto.TimetableEntryDTO;
 import com.school.attendance.dto.TimetableGenerationRequestDTO;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -27,6 +29,8 @@ public class TimetableGenerationService {
     private static final List<String> SUBJECT_ROTATION = List.of("Telugu", "English", "Mathematics", "Science", "Social", "Computer", "Sports", "Library");
     private static final int PERIODS_PER_DAY = 6;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private final Map<String, TimetableGenerationResponseDTO> generatedBatches = new ConcurrentHashMap<>();
+    private volatile String latestBatchId;
 
     public TimetableGenerationResponseDTO generate(TimetableGenerationRequestDTO request) {
         TimetableGenerationRequestDTO safeRequest = normalize(request);
@@ -41,15 +45,32 @@ public class TimetableGenerationService {
         response.setEntries(entries);
         response.setConflicts(conflicts);
         response.setWorkloadSummary(workload);
+        response.setClassSectionReviews(buildClassSectionReviews(entries));
         response.setConflictsDetected(conflicts.size());
         response.setOverloadRiskTeachers((int) workload.stream().filter(item -> !"Balanced".equalsIgnoreCase(item.getStatus())).count());
         int completion = entries.isEmpty() ? 0 : Math.max(70, 100 - Math.min(25, conflicts.size() * 5));
         response.setCompletionPercentage(completion);
+        generatedBatches.put(response.getGeneratedBatchId(), response);
+        latestBatchId = response.getGeneratedBatchId();
         return response;
     }
 
     public TimetableGenerationResponseDTO validate(TimetableGenerationRequestDTO request) {
-        return generate(request);
+        TimetableGenerationResponseDTO response = generate(request);
+        generatedBatches.remove(response.getGeneratedBatchId());
+        return response;
+    }
+
+    public TimetableGenerationResponseDTO review(String batchId) {
+        return findBatchOrCreateFallback(batchId);
+    }
+
+    public List<TimetableConflictDTO> conflicts(String batchId) {
+        return findBatchOrCreateFallback(batchId).getConflicts();
+    }
+
+    public List<TeacherWorkloadSummaryDTO> workloadAnalysis(String batchId) {
+        return findBatchOrCreateFallback(batchId).getWorkloadSummary();
     }
 
     public List<ClassTeacherPoolDTO> getDefaultPools() {
@@ -230,6 +251,48 @@ public class TimetableGenerationService {
             }
         }
         return conflicts;
+    }
+
+    private List<TimetableClassSectionReviewDTO> buildClassSectionReviews(List<TimetableEntryDTO> entries) {
+        Map<String, List<TimetableEntryDTO>> grouped = entries.stream()
+                .collect(Collectors.groupingBy(entry -> entry.getClassName() + "|" + entry.getSection(), LinkedHashMap::new, Collectors.toList()));
+        List<TimetableClassSectionReviewDTO> reviews = new ArrayList<>();
+        for (Map.Entry<String, List<TimetableEntryDTO>> item : grouped.entrySet()) {
+            List<TimetableEntryDTO> sortedEntries = item.getValue().stream()
+                    .sorted(Comparator.comparing(TimetableEntryDTO::getDayOfWeek).thenComparing(TimetableEntryDTO::getPeriodNumber))
+                    .toList();
+            TimetableEntryDTO first = sortedEntries.get(0);
+            int conflictCount = (int) sortedEntries.stream().filter(entry -> Boolean.TRUE.equals(entry.getConflict())).count();
+            reviews.add(new TimetableClassSectionReviewDTO(
+                    first.getClassName(),
+                    first.getSection(),
+                    first.getClassName() + "-" + first.getSection(),
+                    sortedEntries.size(),
+                    conflictCount,
+                    sortedEntries
+            ));
+        }
+        return reviews;
+    }
+
+    private TimetableGenerationResponseDTO findBatchOrCreateFallback(String batchId) {
+        if (batchId != null && generatedBatches.containsKey(batchId)) {
+            return generatedBatches.get(batchId);
+        }
+        if (latestBatchId != null && generatedBatches.containsKey(latestBatchId)) {
+            return generatedBatches.get(latestBatchId);
+        }
+
+        TimetableGenerationRequestDTO fallback = new TimetableGenerationRequestDTO();
+        fallback.setClassNames(List.of("1", "2"));
+        fallback.setSections(List.of("A", "B"));
+        fallback.setAutoDefaultTeacherPoolEnabled(true);
+        fallback.setAutoLoadSectionsEnabled(true);
+        fallback.setEqualDistributionEnabled(true);
+        fallback.setWorkloadBalancingEnabled(true);
+        fallback.setFixedLabPeriodsEnabled(true);
+        fallback.setPreventConsecutiveLabsEnabled(true);
+        return generate(fallback);
     }
 
     private List<TeacherWorkloadSummaryDTO> buildWorkloadSummary(List<TimetableEntryDTO> entries) {

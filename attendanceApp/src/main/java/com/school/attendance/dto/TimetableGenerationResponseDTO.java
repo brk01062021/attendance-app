@@ -13,6 +13,7 @@ public class TimetableGenerationResponseDTO {
     private List<TimetableEntryDTO> entries = new ArrayList<>();
     private List<TimetableConflictDTO> conflicts = new ArrayList<>();
     private List<TeacherWorkloadSummaryDTO> workloadSummary = new ArrayList<>();
+    private List<TimetableClassSectionReviewDTO> classSectionReviews = new ArrayList<>();
 
     public String getGeneratedBatchId() { return generatedBatchId; }
     public void setGeneratedBatchId(String generatedBatchId) { this.generatedBatchId = generatedBatchId; }
@@ -32,4 +33,6 @@ public class TimetableGenerationResponseDTO {
     public void setConflicts(List<TimetableConflictDTO> conflicts) { this.conflicts = conflicts == null ? new ArrayList<>() : conflicts; }
     public List<TeacherWorkloadSummaryDTO> getWorkloadSummary() { return workloadSummary; }
     public void setWorkloadSummary(List<TeacherWorkloadSummaryDTO> workloadSummary) { this.workloadSummary = workloadSummary == null ? new ArrayList<>() : workloadSummary; }
+    public List<TimetableClassSectionReviewDTO> getClassSectionReviews() { return classSectionReviews; }
+    public void setClassSectionReviews(List<TimetableClassSectionReviewDTO> classSectionReviews) { this.classSectionReviews = classSectionReviews == null ? new ArrayList<>() : classSectionReviews; }
 }

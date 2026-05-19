@@ -1,11 +1,14 @@
 package com.school.attendance.controller;
 
 import com.school.attendance.dto.ClassTeacherPoolDTO;
+import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
+import com.school.attendance.dto.TimetableConflictDTO;
 import com.school.attendance.dto.TimetableGenerationRequestDTO;
 import com.school.attendance.dto.TimetableGenerationResponseDTO;
 import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,5 +40,20 @@ public class TimetableGenerationController {
     @PostMapping("/validate")
     public TimetableGenerationResponseDTO validate(@RequestBody TimetableGenerationRequestDTO request) {
         return timetableGenerationService.validate(request);
+    }
+
+    @GetMapping("/review/{batchId}")
+    public TimetableGenerationResponseDTO review(@PathVariable String batchId) {
+        return timetableGenerationService.review(batchId);
+    }
+
+    @GetMapping("/conflicts/{batchId}")
+    public List<TimetableConflictDTO> conflicts(@PathVariable String batchId) {
+        return timetableGenerationService.conflicts(batchId);
+    }
+
+    @GetMapping("/workload-analysis/{batchId}")
+    public List<TeacherWorkloadSummaryDTO> workloadAnalysis(@PathVariable String batchId) {
+        return timetableGenerationService.workloadAnalysis(batchId);
     }
 }
