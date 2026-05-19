@@ -12,6 +12,7 @@ import com.school.attendance.dto.TimetableExportResponseDTO;
 import com.school.attendance.dto.TimetableManualEditRequestDTO;
 import com.school.attendance.dto.TimetablePublishResponseDTO;
 import com.school.attendance.dto.TimetableRepairResultDTO;
+import com.school.attendance.dto.TimetablePublishAuditDTO;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -100,6 +101,16 @@ public class TimetableGenerationController {
     @PostMapping("/publish/{batchId}")
     public TimetablePublishResponseDTO publishByPath(@PathVariable String batchId) {
         return timetableGenerationService.publish(batchId);
+    }
+
+    @GetMapping("/publish-history/{batchId}")
+    public List<TimetablePublishAuditDTO> publishHistory(@PathVariable String batchId) {
+        return timetableGenerationService.publishHistory(batchId);
+    }
+
+    @GetMapping("/latest-published")
+    public TimetablePublishAuditDTO latestPublished() {
+        return timetableGenerationService.latestPublished();
     }
 
     @PostMapping("/publish")

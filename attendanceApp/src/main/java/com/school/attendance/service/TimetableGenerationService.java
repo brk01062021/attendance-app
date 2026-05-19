@@ -14,8 +14,10 @@ import com.school.attendance.dto.TimetablePublishResponseDTO;
 import com.school.attendance.dto.TimetableManualEditRequestDTO;
 import com.school.attendance.dto.TimetableExportResponseDTO;
 import com.school.attendance.dto.PrincipalTimetableIntelligenceDTO;
+import com.school.attendance.dto.TimetablePublishAuditDTO;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -40,7 +42,9 @@ public class TimetableGenerationService {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private final Map<String, TimetableGenerationResponseDTO> generatedBatches = new ConcurrentHashMap<>();
+    private final Map<String, List<TimetablePublishAuditDTO>> publishAudits = new ConcurrentHashMap<>();
     private volatile String latestBatchId;
+    private volatile String latestPublishedBatchId;
 
     public TimetableGenerationResponseDTO generate(TimetableGenerationRequestDTO request) {
         TimetableGenerationRequestDTO safeRequest = normalize(request);
@@ -565,14 +569,51 @@ public class TimetableGenerationService {
         refreshBatch(batch);
         int conflicts = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
         boolean success = conflicts == 0;
-        return new TimetablePublishResponseDTO(
+        String publishedAt = success ? LocalDateTime.now().toString() : null;
+        String approvedBy = "Principal/Admin";
+        String notificationMessage = success
+                ? "Final timetable is published. Teachers can follow the updated weekly schedule."
+                : "Timetable publish blocked. Repair or manually edit conflicts before notifying teachers.";
+        TimetablePublishResponseDTO response = new TimetablePublishResponseDTO(
                 success,
                 batch.getGeneratedBatchId(),
                 success ? "PUBLISHED" : "BLOCKED_BY_CONFLICTS",
                 success ? "Timetable published successfully for school operations." : "Resolve conflicts before publishing timetable.",
                 success ? batch.getEntries().size() : 0,
-                conflicts
+                conflicts,
+                publishedAt,
+                approvedBy,
+                notificationMessage
         );
+        if (success) {
+            latestPublishedBatchId = batch.getGeneratedBatchId();
+            TimetablePublishAuditDTO audit = new TimetablePublishAuditDTO(
+                    "PUB-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
+                    batch.getGeneratedBatchId(),
+                    response.getStatus(),
+                    publishedAt,
+                    approvedBy,
+                    response.getPublishedEntries(),
+                    response.getRemainingConflicts(),
+                    batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
+                    response.getMessage()
+            );
+            publishAudits.computeIfAbsent(batch.getGeneratedBatchId(), key -> new ArrayList<>()).add(0, audit);
+        }
+        return response;
+    }
+
+    public List<TimetablePublishAuditDTO> publishHistory(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        return publishAudits.getOrDefault(batch.getGeneratedBatchId(), List.of());
+    }
+
+    public TimetablePublishAuditDTO latestPublished() {
+        if (latestPublishedBatchId != null) {
+            List<TimetablePublishAuditDTO> audits = publishAudits.getOrDefault(latestPublishedBatchId, List.of());
+            if (!audits.isEmpty()) return audits.get(0);
+        }
+        return new TimetablePublishAuditDTO("NOT-PUBLISHED", latestBatchId, "NOT_PUBLISHED", null, null, 0, 0, 0, "No timetable has been published in this server session yet.");
     }
 
     public TimetableExportResponseDTO export(String batchId, String format) {
@@ -615,7 +656,8 @@ public class TimetableGenerationService {
         List<String> insights = new ArrayList<>();
         insights.add(conflicts == 0 ? "No active timetable conflicts. Publish workflow can proceed." : conflicts + " conflicts need repair/review before final publishing.");
         insights.add(overload == 0 ? "Teacher workload is balanced across the selected timetable." : overload + " teachers require workload review before approval.");
-        insights.add("Principal can use Auto Repair, Manual Editor, then Export/Publish as the Day 15 workflow.");
+        insights.add("Principal can use Auto Repair, Manual Editor, Export/Publish, and Day 16 publish audit history for operational rollout.");
+        insights.add(latestPublishedBatchId != null && latestPublishedBatchId.equals(batch.getGeneratedBatchId()) ? "This batch is the latest published timetable." : "This batch is not yet marked as the latest published timetable.");
         dto.setInsights(insights);
         dto.setTopWorkloadRisks(batch.getWorkloadSummary().stream().limit(5).toList());
         return dto;
