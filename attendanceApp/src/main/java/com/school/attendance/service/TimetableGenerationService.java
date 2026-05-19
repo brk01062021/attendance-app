@@ -13,6 +13,8 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -29,12 +31,13 @@ public class TimetableGenerationService {
     private static final List<String> SUBJECT_ROTATION = List.of("Telugu", "English", "Mathematics", "Science", "Social", "Computer", "Sports", "Library");
     private static final int PERIODS_PER_DAY = 6;
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+
     private final Map<String, TimetableGenerationResponseDTO> generatedBatches = new ConcurrentHashMap<>();
     private volatile String latestBatchId;
 
     public TimetableGenerationResponseDTO generate(TimetableGenerationRequestDTO request) {
         TimetableGenerationRequestDTO safeRequest = normalize(request);
-        List<TimetableEntryDTO> entries = buildEntries(safeRequest);
+        List<TimetableEntryDTO> entries = buildConflictFreeEntries(safeRequest);
         List<TimetableConflictDTO> conflicts = detectConflicts(entries, safeRequest);
         List<TeacherWorkloadSummaryDTO> workload = buildWorkloadSummary(entries);
 
@@ -48,8 +51,8 @@ public class TimetableGenerationService {
         response.setClassSectionReviews(buildClassSectionReviews(entries));
         response.setConflictsDetected(conflicts.size());
         response.setOverloadRiskTeachers((int) workload.stream().filter(item -> !"Balanced".equalsIgnoreCase(item.getStatus())).count());
-        int completion = entries.isEmpty() ? 0 : Math.max(70, 100 - Math.min(25, conflicts.size() * 5));
-        response.setCompletionPercentage(completion);
+        response.setCompletionPercentage(conflicts.isEmpty() ? 100 : Math.max(70, 100 - Math.min(25, conflicts.size() * 5)));
+
         generatedBatches.put(response.getGeneratedBatchId(), response);
         latestBatchId = response.getGeneratedBatchId();
         return response;
@@ -90,36 +93,31 @@ public class TimetableGenerationService {
 
     private TimetableGenerationRequestDTO normalize(TimetableGenerationRequestDTO request) {
         TimetableGenerationRequestDTO normalized = request == null ? new TimetableGenerationRequestDTO() : request;
-        if (normalized.getAcademicYear() == null || normalized.getAcademicYear().isBlank()) {
-            normalized.setAcademicYear("2026-2027");
-        }
-        if (normalized.getGenerationMode() == null || normalized.getGenerationMode().isBlank()) {
-            normalized.setGenerationMode("ANNUAL");
-        }
+        if (isBlank(normalized.getAcademicYear())) normalized.setAcademicYear("2026-2027");
+        if (isBlank(normalized.getGenerationMode())) normalized.setGenerationMode("ANNUAL");
         normalized.setClassNames(uniqueOrDefault(normalized.getClassNames(), List.of("10")));
         normalized.setSections(uniqueOrDefault(normalized.getSections(), List.of("A")));
 
-        Set<Long> teachers = new LinkedHashSet<>();
-        if (normalized.getTeacherIds() != null) {
-            teachers.addAll(normalized.getTeacherIds());
-        }
-        if (normalized.getSelectedTeacherPools() != null) {
-            normalized.getSelectedTeacherPools().forEach(pool -> {
-                if (pool.getTeacherIds() != null) {
-                    teachers.addAll(pool.getTeacherIds());
-                }
-            });
-        }
-        if (teachers.isEmpty()) {
-            teachers.addAll(List.of(1001L, 1002L, 1003L));
-        }
-        normalized.setTeacherIds(new ArrayList<>(teachers));
         if (normalized.getSelectedTeacherPools() == null || normalized.getSelectedTeacherPools().isEmpty()) {
             normalized.setSelectedTeacherPools(getDefaultPools().stream()
                     .filter(pool -> normalized.getClassNames().contains(pool.getClassName()))
                     .toList());
         }
+
+        Set<Long> teachers = new LinkedHashSet<>();
+        if (normalized.getTeacherIds() != null) teachers.addAll(normalized.getTeacherIds());
+        if (normalized.getSelectedTeacherPools() != null) {
+            normalized.getSelectedTeacherPools().forEach(pool -> {
+                if (pool.getTeacherIds() != null) teachers.addAll(pool.getTeacherIds());
+            });
+        }
+        if (teachers.isEmpty()) teachers.addAll(List.of(1001L, 1002L, 1003L, 1004L));
+        normalized.setTeacherIds(new ArrayList<>(teachers));
         return normalized;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private List<String> uniqueOrDefault(List<String> values, List<String> fallback) {
@@ -131,16 +129,41 @@ public class TimetableGenerationService {
         return cleaned.isEmpty() ? new ArrayList<>(fallback) : new ArrayList<>(cleaned);
     }
 
-    private List<TimetableEntryDTO> buildEntries(TimetableGenerationRequestDTO request) {
+    private List<TimetableEntryDTO> buildConflictFreeEntries(TimetableGenerationRequestDTO request) {
         List<TimetableEntryDTO> entries = new ArrayList<>();
+        Map<String, Set<Long>> busyTeachersBySlot = new HashMap<>();
+        Map<Long, Integer> weeklyLoadByTeacher = new HashMap<>();
+        Map<Long, Map<String, Set<Integer>>> teacherDayPeriods = new HashMap<>();
+        Map<String, Long> continuityTeacherByClassSubject = new HashMap<>();
         int sequence = 1;
-        for (String className : request.getClassNames()) {
-            List<Long> classTeacherIds = teacherIdsForClass(request, className);
-            for (String section : request.getSections()) {
-                for (String day : DAYS) {
-                    for (int period = 1; period <= PERIODS_PER_DAY; period++) {
-                        Long teacherId = classTeacherIds.get((period + DAYS.indexOf(day)) % classTeacherIds.size());
-                        String subject = SUBJECT_ROTATION.get(Math.floorMod(period + section.hashCode() + className.hashCode(), SUBJECT_ROTATION.size())).replace("-", "");
+
+        for (String day : DAYS) {
+            for (int period = 1; period <= PERIODS_PER_DAY; period++) {
+                for (String className : request.getClassNames()) {
+                    List<Long> classTeacherIds = teacherIdsForClass(request, className);
+                    for (String section : request.getSections()) {
+                        String subject = subjectFor(className, section, day, period);
+                        Long teacherId = chooseAvailableTeacher(
+                                request,
+                                className,
+                                section,
+                                subject,
+                                day,
+                                period,
+                                classTeacherIds,
+                                busyTeachersBySlot,
+                                weeklyLoadByTeacher,
+                                teacherDayPeriods,
+                                continuityTeacherByClassSubject
+                        );
+                        String slotKey = slotKey(day, period);
+                        busyTeachersBySlot.computeIfAbsent(slotKey, key -> new HashSet<>()).add(teacherId);
+                        weeklyLoadByTeacher.merge(teacherId, 1, Integer::sum);
+                        teacherDayPeriods.computeIfAbsent(teacherId, key -> new HashMap<>())
+                                .computeIfAbsent(day, key -> new HashSet<>())
+                                .add(period);
+                        continuityTeacherByClassSubject.putIfAbsent(className + "|" + section + "|" + subject, teacherId);
+
                         boolean lab = "Computer".equals(subject) || ("Science".equals(subject) && period == 5);
                         boolean sports = "Sports".equals(subject);
                         LocalTime start = LocalTime.of(9, 0).plusMinutes((long) (period - 1) * 45);
@@ -168,6 +191,63 @@ public class TimetableGenerationService {
         return entries;
     }
 
+    private Long chooseAvailableTeacher(TimetableGenerationRequestDTO request,
+                                        String className,
+                                        String section,
+                                        String subject,
+                                        String day,
+                                        int period,
+                                        List<Long> classTeacherIds,
+                                        Map<String, Set<Long>> busyTeachersBySlot,
+                                        Map<Long, Integer> weeklyLoadByTeacher,
+                                        Map<Long, Map<String, Set<Integer>>> teacherDayPeriods,
+                                        Map<String, Long> continuityTeacherByClassSubject) {
+        String slotKey = slotKey(day, period);
+        Set<Long> busyTeachers = busyTeachersBySlot.getOrDefault(slotKey, Set.of());
+        String continuityKey = className + "|" + section + "|" + subject;
+        Long continuityTeacher = continuityTeacherByClassSubject.get(continuityKey);
+        if (Boolean.TRUE.equals(request.getSameTeacherContinuityEnabled()) && continuityTeacher != null && !busyTeachers.contains(continuityTeacher)) {
+            return continuityTeacher;
+        }
+
+        List<Long> candidates = classTeacherIds.stream()
+                .filter(teacherId -> !busyTeachers.contains(teacherId))
+                .toList();
+        if (candidates.isEmpty()) {
+            candidates = request.getTeacherIds().stream()
+                    .filter(teacherId -> !busyTeachers.contains(teacherId))
+                    .toList();
+        }
+        if (candidates.isEmpty()) {
+            return classTeacherIds.isEmpty() ? request.getTeacherIds().get(0) : classTeacherIds.get(0);
+        }
+
+        return candidates.stream()
+                .min(Comparator
+                        .comparingInt((Long teacherId) -> weeklyLoadByTeacher.getOrDefault(teacherId, 0))
+                        .thenComparingInt(teacherId -> gapPenalty(teacherId, day, period, teacherDayPeriods))
+                        .thenComparingLong(Long::longValue))
+                .orElse(candidates.get(0));
+    }
+
+    private int gapPenalty(Long teacherId, String day, int period, Map<Long, Map<String, Set<Integer>>> teacherDayPeriods) {
+        Set<Integer> periods = teacherDayPeriods.getOrDefault(teacherId, Map.of()).getOrDefault(day, Set.of());
+        if (periods.isEmpty()) return 0;
+        if (periods.contains(period - 1) || periods.contains(period + 1)) return -1;
+        int nearest = periods.stream().mapToInt(existing -> Math.abs(existing - period)).min().orElse(0);
+        return nearest > 1 ? nearest : 0;
+    }
+
+    private String subjectFor(String className, String section, String day, int period) {
+        int dayIndex = DAYS.indexOf(day);
+        int seed = Math.floorMod(className.hashCode() + section.hashCode() + dayIndex + period, SUBJECT_ROTATION.size());
+        return SUBJECT_ROTATION.get(seed).replace("-", "");
+    }
+
+    private String slotKey(String day, int period) {
+        return day + "|" + period;
+    }
+
     private List<Long> teacherIdsForClass(TimetableGenerationRequestDTO request, String className) {
         if (request.getSelectedTeacherPools() != null) {
             for (ClassTeacherPoolDTO pool : request.getSelectedTeacherPools()) {
@@ -180,18 +260,14 @@ public class TimetableGenerationService {
     }
 
     private String teacherNameFor(TimetableGenerationRequestDTO request, Long teacherId) {
-        if (teacherId == null) {
-            return "Unassigned";
-        }
+        if (teacherId == null) return "Unassigned";
         if (request.getSelectedTeacherPools() != null) {
             for (ClassTeacherPoolDTO pool : request.getSelectedTeacherPools()) {
                 List<Long> ids = pool.getTeacherIds();
                 List<String> names = pool.getTeacherNames();
                 if (ids != null && names != null) {
                     int index = ids.indexOf(teacherId);
-                    if (index >= 0 && index < names.size()) {
-                        return names.get(index);
-                    }
+                    if (index >= 0 && index < names.size()) return names.get(index);
                 }
             }
         }
@@ -259,7 +335,8 @@ public class TimetableGenerationService {
         List<TimetableClassSectionReviewDTO> reviews = new ArrayList<>();
         for (Map.Entry<String, List<TimetableEntryDTO>> item : grouped.entrySet()) {
             List<TimetableEntryDTO> sortedEntries = item.getValue().stream()
-                    .sorted(Comparator.comparing(TimetableEntryDTO::getDayOfWeek).thenComparing(TimetableEntryDTO::getPeriodNumber))
+                    .sorted(Comparator.comparing((TimetableEntryDTO entry) -> DAYS.indexOf(entry.getDayOfWeek()))
+                            .thenComparing(TimetableEntryDTO::getPeriodNumber))
                     .toList();
             TimetableEntryDTO first = sortedEntries.get(0);
             int conflictCount = (int) sortedEntries.stream().filter(entry -> Boolean.TRUE.equals(entry.getConflict())).count();
@@ -276,12 +353,8 @@ public class TimetableGenerationService {
     }
 
     private TimetableGenerationResponseDTO findBatchOrCreateFallback(String batchId) {
-        if (batchId != null && generatedBatches.containsKey(batchId)) {
-            return generatedBatches.get(batchId);
-        }
-        if (latestBatchId != null && generatedBatches.containsKey(latestBatchId)) {
-            return generatedBatches.get(latestBatchId);
-        }
+        if (batchId != null && generatedBatches.containsKey(batchId)) return generatedBatches.get(batchId);
+        if (latestBatchId != null && generatedBatches.containsKey(latestBatchId)) return generatedBatches.get(latestBatchId);
 
         TimetableGenerationRequestDTO fallback = new TimetableGenerationRequestDTO();
         fallback.setClassNames(List.of("1", "2"));
@@ -292,6 +365,8 @@ public class TimetableGenerationService {
         fallback.setWorkloadBalancingEnabled(true);
         fallback.setFixedLabPeriodsEnabled(true);
         fallback.setPreventConsecutiveLabsEnabled(true);
+        fallback.setSameTeacherContinuityEnabled(true);
+        fallback.setAvoidTeacherGapsEnabled(true);
         return generate(fallback);
     }
 
@@ -304,7 +379,7 @@ public class TimetableGenerationService {
             int weeklyPeriods = item.getValue().size();
             int continuousRisk = calculateContinuousRisk(item.getValue());
             int freeGaps = Math.max(0, DAYS.size() * PERIODS_PER_DAY - weeklyPeriods);
-            int score = Math.min(100, Math.max(10, weeklyPeriods * 2 + continuousRisk * 8));
+            int score = Math.min(100, Math.max(10, weeklyPeriods * 2 + continuousRisk * 6));
             String status = score >= 80 ? "Overload" : score >= 55 ? "Watch" : "Balanced";
             summary.add(new TeacherWorkloadSummaryDTO(
                     item.getKey(),
@@ -331,11 +406,8 @@ public class TimetableGenerationService {
             int current = 1;
             int max = periods.isEmpty() ? 0 : 1;
             for (int index = 1; index < periods.size(); index++) {
-                if (periods.get(index) == periods.get(index - 1) + 1) {
-                    current++;
-                } else {
-                    current = 1;
-                }
+                if (periods.get(index) == periods.get(index - 1) + 1) current++;
+                else current = 1;
                 max = Math.max(max, current);
             }
             risk = Math.max(risk, max);
