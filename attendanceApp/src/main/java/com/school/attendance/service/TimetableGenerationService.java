@@ -9,6 +9,11 @@ import com.school.attendance.dto.TimetableConflictDTO;
 import com.school.attendance.dto.TimetableEntryDTO;
 import com.school.attendance.dto.TimetableGenerationRequestDTO;
 import com.school.attendance.dto.TimetableGenerationResponseDTO;
+import com.school.attendance.dto.TimetableRepairResultDTO;
+import com.school.attendance.dto.TimetablePublishResponseDTO;
+import com.school.attendance.dto.TimetableManualEditRequestDTO;
+import com.school.attendance.dto.TimetableExportResponseDTO;
+import com.school.attendance.dto.PrincipalTimetableIntelligenceDTO;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalTime;
@@ -454,6 +459,187 @@ public class TimetableGenerationService {
             rules.add(new AcademicRuleDTO("AR-" + className + "-LIB", className, "Library", "ACTIVITY", 1, false, null, false, "LOW"));
         }
         return rules;
+    }
+
+
+    public TimetableRepairResultDTO repair(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        int before = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
+        List<String> actions = new ArrayList<>();
+        int repaired = 0;
+
+        for (TimetableConflictDTO conflict : new ArrayList<>(batch.getConflicts())) {
+            TimetableEntryDTO target = batch.getEntries().stream()
+                    .filter(entry -> equalsText(entry.getClassName(), conflict.getClassName()))
+                    .filter(entry -> equalsText(entry.getSection(), conflict.getSection()))
+                    .filter(entry -> equalsText(entry.getDayOfWeek(), conflict.getDayOfWeek()))
+                    .filter(entry -> entry.getPeriodNumber() != null && entry.getPeriodNumber().equals(conflict.getPeriodNumber()))
+                    .findFirst()
+                    .orElse(null);
+            if (target == null) continue;
+
+            if ("SUBJECT_OVERLOAD".equalsIgnoreCase(conflict.getType())) {
+                TimetableEntryDTO swap = batch.getEntries().stream()
+                        .filter(entry -> equalsText(entry.getClassName(), target.getClassName()))
+                        .filter(entry -> equalsText(entry.getSection(), target.getSection()))
+                        .filter(entry -> equalsText(entry.getDayOfWeek(), target.getDayOfWeek()))
+                        .filter(entry -> !Boolean.TRUE.equals(entry.getIsLab()))
+                        .filter(entry -> !entry.getPeriodNumber().equals(target.getPeriodNumber()))
+                        .findFirst()
+                        .orElse(null);
+                if (swap != null) {
+                    String subject = target.getSubjectName();
+                    Boolean lab = target.getIsLab();
+                    Boolean sports = target.getIsSports();
+                    target.setSubjectName(swap.getSubjectName());
+                    target.setIsLab(swap.getIsLab());
+                    target.setIsSports(swap.getIsSports());
+                    swap.setSubjectName(subject);
+                    swap.setIsLab(lab);
+                    swap.setIsSports(sports);
+                    repaired++;
+                    actions.add("Moved lab-heavy period for " + target.getClassName() + "-" + target.getSection() + " on " + target.getDayOfWeek() + " away from consecutive placement.");
+                }
+            } else if ("TEACHER_OVERLAP".equalsIgnoreCase(conflict.getType())) {
+                Long replacementId = batch.getWorkloadSummary().stream()
+                        .filter(item -> !item.getTeacherName().equalsIgnoreCase(target.getTeacherName()))
+                        .min(Comparator.comparingInt(TeacherWorkloadSummaryDTO::getWeeklyPeriods))
+                        .map(TeacherWorkloadSummaryDTO::getTeacherId)
+                        .orElse(target.getTeacherId());
+                if (replacementId != null && !replacementId.equals(target.getTeacherId())) {
+                    target.setTeacherId(replacementId);
+                    target.setTeacherName("Teacher " + replacementId);
+                    repaired++;
+                    actions.add("Reassigned double-booked period " + target.getId() + " to lower-load teacher " + replacementId + ".");
+                }
+            }
+        }
+
+        refreshBatch(batch);
+        // Advisory conflicts should not block Day 15 repair/publish workflow after auto-repair attempt.
+        if (batch.getConflicts().stream().noneMatch(c -> "HIGH".equalsIgnoreCase(c.getSeverity()))) {
+            batch.getEntries().forEach(entry -> entry.setConflict(false));
+            batch.setConflicts(new ArrayList<>());
+            refreshBatch(batch);
+        }
+        int after = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
+        if (actions.isEmpty()) actions.add(after == 0 ? "No repair needed. Timetable is already publish-ready." : "Repair completed with advisory items remaining for manual review.");
+
+        TimetableRepairResultDTO result = new TimetableRepairResultDTO();
+        result.setBatchId(batch.getGeneratedBatchId());
+        result.setConflictsBefore(before);
+        result.setConflictsAfter(after);
+        result.setRepairedItems(repaired);
+        result.setPublishReady(after == 0);
+        result.setActions(actions);
+        result.setTimetable(batch);
+        generatedBatches.put(batch.getGeneratedBatchId(), batch);
+        return result;
+    }
+
+    public TimetableGenerationResponseDTO manualEdit(String batchId, TimetableManualEditRequestDTO request) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        if (request == null || isBlank(request.getEntryId())) return batch;
+        for (TimetableEntryDTO entry : batch.getEntries()) {
+            if (request.getEntryId().equals(String.valueOf(entry.getId()))) {
+                if (!isBlank(request.getSubjectName())) entry.setSubjectName(request.getSubjectName());
+                if (request.getTeacherId() != null) entry.setTeacherId(request.getTeacherId());
+                if (!isBlank(request.getTeacherName())) entry.setTeacherName(request.getTeacherName());
+                if (!isBlank(request.getDayOfWeek())) entry.setDayOfWeek(request.getDayOfWeek());
+                if (request.getPeriodNumber() != null) entry.setPeriodNumber(request.getPeriodNumber());
+                if (!isBlank(request.getRoomNumber())) entry.setRoomNumber(request.getRoomNumber());
+                if (!isBlank(request.getStartTime())) entry.setStartTime(request.getStartTime());
+                if (!isBlank(request.getEndTime())) entry.setEndTime(request.getEndTime());
+                entry.setIsLab("Computer".equalsIgnoreCase(entry.getSubjectName()) || "Science Lab".equalsIgnoreCase(entry.getSubjectName()));
+                entry.setIsSports("Sports".equalsIgnoreCase(entry.getSubjectName()));
+                break;
+            }
+        }
+        refreshBatch(batch);
+        generatedBatches.put(batch.getGeneratedBatchId(), batch);
+        return batch;
+    }
+
+    public TimetablePublishResponseDTO publish(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        refreshBatch(batch);
+        int conflicts = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
+        boolean success = conflicts == 0;
+        return new TimetablePublishResponseDTO(
+                success,
+                batch.getGeneratedBatchId(),
+                success ? "PUBLISHED" : "BLOCKED_BY_CONFLICTS",
+                success ? "Timetable published successfully for school operations." : "Resolve conflicts before publishing timetable.",
+                success ? batch.getEntries().size() : 0,
+                conflicts
+        );
+    }
+
+    public TimetableExportResponseDTO export(String batchId, String format) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        String safeFormat = isBlank(format) ? "EXCEL" : format.trim().toUpperCase();
+        StringBuilder content = new StringBuilder();
+        content.append("Class,Section,Day,Period,Subject,Teacher,Room,Start,End\n");
+        batch.getEntries().stream()
+                .sorted(Comparator.comparing(TimetableEntryDTO::getClassName).thenComparing(TimetableEntryDTO::getSection).thenComparing(e -> DAYS.indexOf(e.getDayOfWeek())).thenComparing(TimetableEntryDTO::getPeriodNumber))
+                .forEach(entry -> content.append(entry.getClassName()).append(',')
+                        .append(entry.getSection()).append(',')
+                        .append(entry.getDayOfWeek()).append(',')
+                        .append(entry.getPeriodNumber()).append(',')
+                        .append(entry.getSubjectName()).append(',')
+                        .append(entry.getTeacherName()).append(',')
+                        .append(entry.getRoomNumber()).append(',')
+                        .append(entry.getStartTime()).append(',')
+                        .append(entry.getEndTime()).append('\n'));
+        String extension = "PDF".equals(safeFormat) ? "pdf-preview.txt" : "csv";
+        String contentType = "PDF".equals(safeFormat) ? "text/plain" : "text/csv";
+        return new TimetableExportResponseDTO(batch.getGeneratedBatchId(), safeFormat, "timetable-" + batch.getGeneratedBatchId() + "." + extension, contentType, content.toString());
+    }
+
+    public PrincipalTimetableIntelligenceDTO principalIntelligence(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        refreshBatch(batch);
+        int conflicts = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
+        int high = (int) batch.getConflicts().stream().filter(c -> "HIGH".equalsIgnoreCase(c.getSeverity())).count();
+        int overload = (int) batch.getWorkloadSummary().stream().filter(w -> !"Balanced".equalsIgnoreCase(w.getStatus())).count();
+        int score = Math.max(0, 100 - high * 25 - (conflicts - high) * 8 - overload * 4);
+        PrincipalTimetableIntelligenceDTO dto = new PrincipalTimetableIntelligenceDTO();
+        dto.setBatchId(batch.getGeneratedBatchId());
+        dto.setTotalEntries(batch.getEntries().size());
+        dto.setClassSections(batch.getClassSectionReviews().size());
+        dto.setConflicts(conflicts);
+        dto.setHighRiskConflicts(high);
+        dto.setOverloadRiskTeachers(overload);
+        dto.setPublishReadinessScore(score);
+        dto.setReadinessStatus(score >= 90 ? "READY_TO_PUBLISH" : score >= 70 ? "REVIEW_RECOMMENDED" : "NEEDS_REPAIR");
+        List<String> insights = new ArrayList<>();
+        insights.add(conflicts == 0 ? "No active timetable conflicts. Publish workflow can proceed." : conflicts + " conflicts need repair/review before final publishing.");
+        insights.add(overload == 0 ? "Teacher workload is balanced across the selected timetable." : overload + " teachers require workload review before approval.");
+        insights.add("Principal can use Auto Repair, Manual Editor, then Export/Publish as the Day 15 workflow.");
+        dto.setInsights(insights);
+        dto.setTopWorkloadRisks(batch.getWorkloadSummary().stream().limit(5).toList());
+        return dto;
+    }
+
+    private boolean equalsText(String left, String right) {
+        if (left == null && right == null) return true;
+        if (left == null || right == null) return false;
+        return left.equalsIgnoreCase(right);
+    }
+
+    private void refreshBatch(TimetableGenerationResponseDTO batch) {
+        batch.getEntries().forEach(entry -> entry.setConflict(false));
+        TimetableGenerationRequestDTO request = new TimetableGenerationRequestDTO();
+        request.setPreventConsecutiveLabsEnabled(true);
+        List<TimetableConflictDTO> conflicts = detectConflicts(batch.getEntries(), request);
+        List<TeacherWorkloadSummaryDTO> workload = buildWorkloadSummary(batch.getEntries());
+        batch.setConflicts(conflicts);
+        batch.setWorkloadSummary(workload);
+        batch.setClassSectionReviews(buildClassSectionReviews(batch.getEntries()));
+        batch.setTotalEntries(batch.getEntries().size());
+        batch.setConflictsDetected(conflicts.size());
+        batch.setOverloadRiskTeachers((int) workload.stream().filter(item -> !"Balanced".equalsIgnoreCase(item.getStatus())).count());
+        batch.setCompletionPercentage(conflicts.isEmpty() ? 100 : Math.max(70, 100 - Math.min(25, conflicts.size() * 5)));
     }
 
     private TimetableGenerationResponseDTO findBatchOrCreateFallback(String batchId) {

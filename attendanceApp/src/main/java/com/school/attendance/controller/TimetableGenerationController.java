@@ -7,6 +7,12 @@ import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
 import com.school.attendance.dto.TimetableConflictDTO;
 import com.school.attendance.dto.TimetableGenerationRequestDTO;
 import com.school.attendance.dto.TimetableGenerationResponseDTO;
+import com.school.attendance.dto.PrincipalTimetableIntelligenceDTO;
+import com.school.attendance.dto.TimetableExportResponseDTO;
+import com.school.attendance.dto.TimetableManualEditRequestDTO;
+import com.school.attendance.dto.TimetablePublishResponseDTO;
+import com.school.attendance.dto.TimetableRepairResultDTO;
+import org.springframework.web.bind.annotation.RequestParam;
 import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -56,7 +62,11 @@ public class TimetableGenerationController {
 
     @PostMapping("/academic-rules/validate")
     public AcademicRulesSummaryDTO validateAcademicRules(@RequestBody TimetableGenerationRequestDTO request) {
-        return timetableGenerationService.validateAcademicRules(request.getAcademicRules(), request.getClassNames(), request.getSections());
+        return timetableGenerationService.validateAcademicRules(
+                request.getAcademicRules(),
+                request.getClassNames(),
+                request.getSections()
+        );
     }
 
     @GetMapping("/review/{batchId}")
@@ -72,5 +82,43 @@ public class TimetableGenerationController {
     @GetMapping("/workload-analysis/{batchId}")
     public List<TeacherWorkloadSummaryDTO> workloadAnalysis(@PathVariable String batchId) {
         return timetableGenerationService.workloadAnalysis(batchId);
+    }
+
+    @PostMapping({"/repair/{batchId}", "/auto-repair/{batchId}"})
+    public TimetableRepairResultDTO repair(@PathVariable String batchId) {
+        return timetableGenerationService.repair(batchId);
+    }
+
+    @PostMapping("/manual-edit/{batchId}")
+    public TimetableGenerationResponseDTO manualEdit(
+            @PathVariable String batchId,
+            @RequestBody TimetableManualEditRequestDTO request
+    ) {
+        return timetableGenerationService.manualEdit(batchId, request);
+    }
+
+    @PostMapping("/publish/{batchId}")
+    public TimetablePublishResponseDTO publishByPath(@PathVariable String batchId) {
+        return timetableGenerationService.publish(batchId);
+    }
+
+    @PostMapping("/publish")
+    public TimetablePublishResponseDTO publishByBody(@RequestBody java.util.Map<String, String> request) {
+        return timetableGenerationService.publish(
+                request == null ? null : request.get("generatedBatchId")
+        );
+    }
+
+    @GetMapping("/export/{batchId}")
+    public TimetableExportResponseDTO export(
+            @PathVariable String batchId,
+            @RequestParam(defaultValue = "EXCEL") String format
+    ) {
+        return timetableGenerationService.export(batchId, format);
+    }
+
+    @GetMapping("/principal-intelligence/{batchId}")
+    public PrincipalTimetableIntelligenceDTO principalIntelligence(@PathVariable String batchId) {
+        return timetableGenerationService.principalIntelligence(batchId);
     }
 }
