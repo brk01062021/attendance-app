@@ -1,5 +1,7 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.dto.AcademicRuleDTO;
+import com.school.attendance.dto.AcademicRulesSummaryDTO;
 import com.school.attendance.dto.ClassTeacherPoolDTO;
 import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
 import com.school.attendance.dto.TimetableConflictDTO;
@@ -40,6 +42,21 @@ public class TimetableGenerationController {
     @PostMapping("/validate")
     public TimetableGenerationResponseDTO validate(@RequestBody TimetableGenerationRequestDTO request) {
         return timetableGenerationService.validate(request);
+    }
+
+    @GetMapping("/academic-rules/defaults")
+    public List<AcademicRuleDTO> getDefaultAcademicRules() {
+        return timetableGenerationService.getDefaultAcademicRules(List.of("1", "2"));
+    }
+
+    @PostMapping("/academic-rules/defaults")
+    public List<AcademicRuleDTO> getDefaultAcademicRulesForClasses(@RequestBody TimetableGenerationRequestDTO request) {
+        return timetableGenerationService.getDefaultAcademicRules(request.getClassNames());
+    }
+
+    @PostMapping("/academic-rules/validate")
+    public AcademicRulesSummaryDTO validateAcademicRules(@RequestBody TimetableGenerationRequestDTO request) {
+        return timetableGenerationService.validateAcademicRules(request.getAcademicRules(), request.getClassNames(), request.getSections());
     }
 
     @GetMapping("/review/{batchId}")

@@ -14,6 +14,7 @@ public class TimetableGenerationResponseDTO {
     private List<TimetableConflictDTO> conflicts = new ArrayList<>();
     private List<TeacherWorkloadSummaryDTO> workloadSummary = new ArrayList<>();
     private List<TimetableClassSectionReviewDTO> classSectionReviews = new ArrayList<>();
+    private AcademicRulesSummaryDTO academicRulesSummary;
 
     public String getGeneratedBatchId() { return generatedBatchId; }
     public void setGeneratedBatchId(String generatedBatchId) { this.generatedBatchId = generatedBatchId; }
@@ -35,4 +36,6 @@ public class TimetableGenerationResponseDTO {
     public void setWorkloadSummary(List<TeacherWorkloadSummaryDTO> workloadSummary) { this.workloadSummary = workloadSummary == null ? new ArrayList<>() : workloadSummary; }
     public List<TimetableClassSectionReviewDTO> getClassSectionReviews() { return classSectionReviews; }
     public void setClassSectionReviews(List<TimetableClassSectionReviewDTO> classSectionReviews) { this.classSectionReviews = classSectionReviews == null ? new ArrayList<>() : classSectionReviews; }
+    public AcademicRulesSummaryDTO getAcademicRulesSummary() { return academicRulesSummary; }
+    public void setAcademicRulesSummary(AcademicRulesSummaryDTO academicRulesSummary) { this.academicRulesSummary = academicRulesSummary; }
 }

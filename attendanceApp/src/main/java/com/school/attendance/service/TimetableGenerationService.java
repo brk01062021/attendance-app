@@ -1,5 +1,7 @@
 package com.school.attendance.service;
 
+import com.school.attendance.dto.AcademicRuleDTO;
+import com.school.attendance.dto.AcademicRulesSummaryDTO;
 import com.school.attendance.dto.ClassTeacherPoolDTO;
 import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
 import com.school.attendance.dto.TimetableClassSectionReviewDTO;
@@ -37,6 +39,7 @@ public class TimetableGenerationService {
 
     public TimetableGenerationResponseDTO generate(TimetableGenerationRequestDTO request) {
         TimetableGenerationRequestDTO safeRequest = normalize(request);
+        AcademicRulesSummaryDTO academicRulesSummary = validateAcademicRules(safeRequest.getAcademicRules(), safeRequest.getClassNames(), safeRequest.getSections());
         List<TimetableEntryDTO> entries = buildConflictFreeEntries(safeRequest);
         List<TimetableConflictDTO> conflicts = detectConflicts(entries, safeRequest);
         List<TeacherWorkloadSummaryDTO> workload = buildWorkloadSummary(entries);
@@ -49,6 +52,7 @@ public class TimetableGenerationService {
         response.setConflicts(conflicts);
         response.setWorkloadSummary(workload);
         response.setClassSectionReviews(buildClassSectionReviews(entries));
+        response.setAcademicRulesSummary(academicRulesSummary);
         response.setConflictsDetected(conflicts.size());
         response.setOverloadRiskTeachers((int) workload.stream().filter(item -> !"Balanced".equalsIgnoreCase(item.getStatus())).count());
         response.setCompletionPercentage(conflicts.isEmpty() ? 100 : Math.max(70, 100 - Math.min(25, conflicts.size() * 5)));
@@ -113,6 +117,9 @@ public class TimetableGenerationService {
         }
         if (teachers.isEmpty()) teachers.addAll(List.of(1001L, 1002L, 1003L, 1004L));
         normalized.setTeacherIds(new ArrayList<>(teachers));
+        if (normalized.getAcademicRules() == null || normalized.getAcademicRules().isEmpty()) {
+            normalized.setAcademicRules(defaultAcademicRulesForClasses(normalized.getClassNames()));
+        }
         return normalized;
     }
 
@@ -142,7 +149,7 @@ public class TimetableGenerationService {
                 for (String className : request.getClassNames()) {
                     List<Long> classTeacherIds = teacherIdsForClass(request, className);
                     for (String section : request.getSections()) {
-                        String subject = subjectFor(className, section, day, period);
+                        String subject = subjectFor(request, className, section, day, period);
                         Long teacherId = chooseAvailableTeacher(
                                 request,
                                 className,
@@ -238,10 +245,61 @@ public class TimetableGenerationService {
         return nearest > 1 ? nearest : 0;
     }
 
-    private String subjectFor(String className, String section, String day, int period) {
+    private String subjectFor(TimetableGenerationRequestDTO request, String className, String section, String day, int period) {
+        if (Boolean.TRUE.equals(request.getAcademicRulesEngineEnabled()) && request.getAcademicRules() != null && !request.getAcademicRules().isEmpty()) {
+            List<AcademicRuleDTO> classRules = rulesForClass(request.getAcademicRules(), className);
+            for (AcademicRuleDTO rule : classRules) {
+                if (Boolean.TRUE.equals(rule.getFixedPeriodRequired()) && rule.getPreferredPeriodNumber() != null && rule.getPreferredPeriodNumber() == period) {
+                    return rule.getSubjectName();
+                }
+            }
+            List<String> weeklyPlan = buildWeeklySubjectPlan(classRules);
+            if (!weeklyPlan.isEmpty()) {
+                int dayIndex = Math.max(0, DAYS.indexOf(day));
+                int slotIndex = Math.floorMod(dayIndex * PERIODS_PER_DAY + period - 1 + Math.abs(section.hashCode() % 3), weeklyPlan.size());
+                return weeklyPlan.get(slotIndex);
+            }
+        }
         int dayIndex = DAYS.indexOf(day);
         int seed = Math.floorMod(className.hashCode() + section.hashCode() + dayIndex + period, SUBJECT_ROTATION.size());
         return SUBJECT_ROTATION.get(seed).replace("-", "");
+    }
+
+    private List<AcademicRuleDTO> rulesForClass(List<AcademicRuleDTO> rules, String className) {
+        List<AcademicRuleDTO> exact = rules.stream()
+                .filter(rule -> className.equals(rule.getClassName()))
+                .toList();
+        if (!exact.isEmpty()) return exact;
+        return rules.stream()
+                .filter(rule -> rule.getClassName() == null || rule.getClassName().isBlank() || "DEFAULT".equalsIgnoreCase(rule.getClassName()))
+                .toList();
+    }
+
+    private List<String> buildWeeklySubjectPlan(List<AcademicRuleDTO> classRules) {
+        List<AcademicRuleDTO> sortedRules = classRules.stream()
+                .sorted(Comparator.comparing((AcademicRuleDTO rule) -> priorityWeight(rule.getPriority()))
+                        .thenComparing(AcademicRuleDTO::getSubjectName, Comparator.nullsLast(String::compareTo)))
+                .toList();
+        List<String> plan = new ArrayList<>();
+        for (AcademicRuleDTO rule : sortedRules) {
+            int count = Math.max(0, rule.getWeeklyPeriods() == null ? 0 : rule.getWeeklyPeriods());
+            for (int index = 0; index < count; index++) {
+                if (!isBlank(rule.getSubjectName())) plan.add(rule.getSubjectName());
+            }
+        }
+        int cursor = 0;
+        while (plan.size() < DAYS.size() * PERIODS_PER_DAY && !sortedRules.isEmpty()) {
+            AcademicRuleDTO next = sortedRules.get(cursor % sortedRules.size());
+            if (!isBlank(next.getSubjectName())) plan.add(next.getSubjectName());
+            cursor++;
+        }
+        return plan;
+    }
+
+    private int priorityWeight(String priority) {
+        if ("HIGH".equalsIgnoreCase(priority)) return 0;
+        if ("MEDIUM".equalsIgnoreCase(priority)) return 1;
+        return 2;
     }
 
     private String slotKey(String day, int period) {
@@ -352,6 +410,52 @@ public class TimetableGenerationService {
         return reviews;
     }
 
+
+    public List<AcademicRuleDTO> getDefaultAcademicRules(List<String> classNames) {
+        List<String> classes = uniqueOrDefault(classNames, List.of("1", "2"));
+        return defaultAcademicRulesForClasses(classes);
+    }
+
+    public AcademicRulesSummaryDTO validateAcademicRules(List<AcademicRuleDTO> rules, List<String> classNames, List<String> sections) {
+        List<String> safeClasses = uniqueOrDefault(classNames, List.of("1"));
+        List<String> safeSections = uniqueOrDefault(sections, List.of("A"));
+        List<AcademicRuleDTO> safeRules = rules == null || rules.isEmpty() ? defaultAcademicRulesForClasses(safeClasses) : rules;
+        int availableSlots = safeClasses.size() * safeSections.size() * DAYS.size() * PERIODS_PER_DAY;
+        int required = safeRules.stream().mapToInt(rule -> Math.max(0, rule.getWeeklyPeriods() == null ? 0 : rule.getWeeklyPeriods())).sum() * safeSections.size();
+        int theory = totalByType(safeRules, "THEORY") * safeSections.size();
+        int lab = totalByType(safeRules, "LAB") * safeSections.size();
+        int sports = totalByType(safeRules, "SPORTS") * safeSections.size();
+        int activity = totalByType(safeRules, "ACTIVITY") * safeSections.size();
+        List<String> warnings = new ArrayList<>();
+        if (required > availableSlots) warnings.add("Academic rules require more periods than available weekly timetable slots.");
+        if (safeRules.stream().noneMatch(rule -> "Mathematics".equalsIgnoreCase(rule.getSubjectName()))) warnings.add("Mathematics rule is missing for one or more selected classes.");
+        if (safeRules.stream().noneMatch(rule -> "English".equalsIgnoreCase(rule.getSubjectName()))) warnings.add("English rule is missing for one or more selected classes.");
+        if (lab == 0) warnings.add("No lab/activity rule configured. Add Computer or Science lab before final production rollout if applicable.");
+        return new AcademicRulesSummaryDTO(safeRules.size(), required, availableSlots, theory, lab, sports, activity, required <= availableSlots, warnings);
+    }
+
+    private int totalByType(List<AcademicRuleDTO> rules, String type) {
+        return rules.stream()
+                .filter(rule -> type.equalsIgnoreCase(rule.getSubjectType()))
+                .mapToInt(rule -> Math.max(0, rule.getWeeklyPeriods() == null ? 0 : rule.getWeeklyPeriods()))
+                .sum();
+    }
+
+    private List<AcademicRuleDTO> defaultAcademicRulesForClasses(List<String> classNames) {
+        List<AcademicRuleDTO> rules = new ArrayList<>();
+        for (String className : classNames) {
+            rules.add(new AcademicRuleDTO("AR-" + className + "-TEL", className, "Telugu", "THEORY", 5, false, null, true, "HIGH"));
+            rules.add(new AcademicRuleDTO("AR-" + className + "-ENG", className, "English", "THEORY", 5, false, null, true, "HIGH"));
+            rules.add(new AcademicRuleDTO("AR-" + className + "-MAT", className, "Mathematics", "THEORY", 6, false, null, true, "HIGH"));
+            rules.add(new AcademicRuleDTO("AR-" + className + "-SCI", className, "Science", "THEORY", 5, false, null, true, "HIGH"));
+            rules.add(new AcademicRuleDTO("AR-" + className + "-SOC", className, "Social", "THEORY", 5, false, null, true, "MEDIUM"));
+            rules.add(new AcademicRuleDTO("AR-" + className + "-COM", className, "Computer", "LAB", 2, true, 5, true, "MEDIUM"));
+            rules.add(new AcademicRuleDTO("AR-" + className + "-SPO", className, "Sports", "SPORTS", 2, true, 6, false, "LOW"));
+            rules.add(new AcademicRuleDTO("AR-" + className + "-LIB", className, "Library", "ACTIVITY", 1, false, null, false, "LOW"));
+        }
+        return rules;
+    }
+
     private TimetableGenerationResponseDTO findBatchOrCreateFallback(String batchId) {
         if (batchId != null && generatedBatches.containsKey(batchId)) return generatedBatches.get(batchId);
         if (latestBatchId != null && generatedBatches.containsKey(latestBatchId)) return generatedBatches.get(latestBatchId);
@@ -367,6 +471,8 @@ public class TimetableGenerationService {
         fallback.setPreventConsecutiveLabsEnabled(true);
         fallback.setSameTeacherContinuityEnabled(true);
         fallback.setAvoidTeacherGapsEnabled(true);
+        fallback.setAcademicRulesEngineEnabled(true);
+        fallback.setAcademicRules(defaultAcademicRulesForClasses(fallback.getClassNames()));
         return generate(fallback);
     }
 

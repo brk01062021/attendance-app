@@ -19,6 +19,8 @@ public class TimetableGenerationRequestDTO {
     private Boolean avoidTeacherGapsEnabled;
     private Boolean sameTeacherContinuityEnabled;
     private Boolean preventConsecutiveLabsEnabled;
+    private Boolean academicRulesEngineEnabled;
+    private java.util.List<AcademicRuleDTO> academicRules = new java.util.ArrayList<>();
 
     public String getAcademicYear() { return academicYear; }
     public void setAcademicYear(String academicYear) { this.academicYear = academicYear; }
@@ -50,4 +52,8 @@ public class TimetableGenerationRequestDTO {
     public void setSameTeacherContinuityEnabled(Boolean sameTeacherContinuityEnabled) { this.sameTeacherContinuityEnabled = sameTeacherContinuityEnabled; }
     public Boolean getPreventConsecutiveLabsEnabled() { return preventConsecutiveLabsEnabled; }
     public void setPreventConsecutiveLabsEnabled(Boolean preventConsecutiveLabsEnabled) { this.preventConsecutiveLabsEnabled = preventConsecutiveLabsEnabled; }
+    public Boolean getAcademicRulesEngineEnabled() { return academicRulesEngineEnabled; }
+    public void setAcademicRulesEngineEnabled(Boolean academicRulesEngineEnabled) { this.academicRulesEngineEnabled = academicRulesEngineEnabled; }
+    public java.util.List<AcademicRuleDTO> getAcademicRules() { return academicRules; }
+    public void setAcademicRules(java.util.List<AcademicRuleDTO> academicRules) { this.academicRules = academicRules == null ? new java.util.ArrayList<>() : academicRules; }
 }
