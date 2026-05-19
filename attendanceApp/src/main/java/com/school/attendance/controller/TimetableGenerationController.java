@@ -13,6 +13,7 @@ import com.school.attendance.dto.TimetableManualEditRequestDTO;
 import com.school.attendance.dto.TimetablePublishResponseDTO;
 import com.school.attendance.dto.TimetableRepairResultDTO;
 import com.school.attendance.dto.TimetablePublishAuditDTO;
+import com.school.attendance.dto.TimetableBatchSummaryDTO;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -99,8 +100,11 @@ public class TimetableGenerationController {
     }
 
     @PostMapping("/publish/{batchId}")
-    public TimetablePublishResponseDTO publishByPath(@PathVariable String batchId) {
-        return timetableGenerationService.publish(batchId);
+    public TimetablePublishResponseDTO publishByPath(
+            @PathVariable String batchId,
+            @RequestParam(required = false) String approvedBy
+    ) {
+        return timetableGenerationService.publish(batchId, approvedBy);
     }
 
     @GetMapping("/publish-history/{batchId}")
@@ -113,10 +117,21 @@ public class TimetableGenerationController {
         return timetableGenerationService.latestPublished();
     }
 
+    @GetMapping("/batches")
+    public List<TimetableBatchSummaryDTO> batches() {
+        return timetableGenerationService.listBatches();
+    }
+
+    @GetMapping("/batch-summary/{batchId}")
+    public TimetableBatchSummaryDTO batchSummary(@PathVariable String batchId) {
+        return timetableGenerationService.batchSummary(batchId);
+    }
+
     @PostMapping("/publish")
     public TimetablePublishResponseDTO publishByBody(@RequestBody java.util.Map<String, String> request) {
         return timetableGenerationService.publish(
-                request == null ? null : request.get("generatedBatchId")
+                request == null ? null : request.get("generatedBatchId"),
+                request == null ? null : request.get("approvedBy")
         );
     }
 

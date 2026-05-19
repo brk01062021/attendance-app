@@ -15,6 +15,7 @@ import com.school.attendance.dto.TimetableManualEditRequestDTO;
 import com.school.attendance.dto.TimetableExportResponseDTO;
 import com.school.attendance.dto.PrincipalTimetableIntelligenceDTO;
 import com.school.attendance.dto.TimetablePublishAuditDTO;
+import com.school.attendance.dto.TimetableBatchSummaryDTO;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -565,12 +566,16 @@ public class TimetableGenerationService {
     }
 
     public TimetablePublishResponseDTO publish(String batchId) {
+        return publish(batchId, null);
+    }
+
+    public TimetablePublishResponseDTO publish(String batchId, String approvedByName) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
         refreshBatch(batch);
         int conflicts = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
         boolean success = conflicts == 0;
         String publishedAt = success ? LocalDateTime.now().toString() : null;
-        String approvedBy = "Principal/Admin";
+        String approvedBy = isBlank(approvedByName) ? "Principal/Admin" : approvedByName.trim();
         String notificationMessage = success
                 ? "Final timetable is published. Teachers can follow the updated weekly schedule."
                 : "Timetable publish blocked. Repair or manually edit conflicts before notifying teachers.";
@@ -606,6 +611,80 @@ public class TimetableGenerationService {
     public List<TimetablePublishAuditDTO> publishHistory(String batchId) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
         return publishAudits.getOrDefault(batch.getGeneratedBatchId(), List.of());
+    }
+
+
+    public List<TimetableBatchSummaryDTO> listBatches() {
+        List<TimetableBatchSummaryDTO> summaries = generatedBatches.values().stream()
+                .sorted(Comparator.comparing(TimetableGenerationResponseDTO::getGeneratedBatchId).reversed())
+                .map(batch -> {
+                    refreshBatch(batch);
+                    List<TimetablePublishAuditDTO> audits = publishAudits.getOrDefault(batch.getGeneratedBatchId(), List.of());
+                    TimetablePublishAuditDTO latestAudit = audits.isEmpty() ? null : audits.get(0);
+                    String status = latestAudit != null ? latestAudit.getStatus() : (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0 ? "REVIEW_REQUIRED" : "GENERATED_READY");
+                    String message = latestAudit != null ? latestAudit.getMessage() : ("Generated batch ready for review: " + batch.getGeneratedBatchId());
+                    return new TimetableBatchSummaryDTO(
+                            batch.getGeneratedBatchId(),
+                            status,
+                            batch.getTotalEntries(),
+                            batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
+                            batch.getConflictsDetected(),
+                            batch.getOverloadRiskTeachers(),
+                            batch.getCompletionPercentage(),
+                            latestAudit == null ? null : latestAudit.getPublishedAt(),
+                            latestAudit == null ? null : latestAudit.getApprovedBy(),
+                            message
+                    );
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        if (summaries.isEmpty()) {
+            TimetableGenerationResponseDTO fallback = findBatchOrCreateFallback(latestBatchId);
+            refreshBatch(fallback);
+            summaries.add(new TimetableBatchSummaryDTO(
+                    fallback.getGeneratedBatchId(),
+                    "DEMO_READY",
+                    fallback.getTotalEntries(),
+                    fallback.getClassSectionReviews() == null ? 0 : fallback.getClassSectionReviews().size(),
+                    fallback.getConflictsDetected(),
+                    fallback.getOverloadRiskTeachers(),
+                    fallback.getCompletionPercentage(),
+                    null,
+                    null,
+                    "Demo fallback batch created for mobile validation."
+            ));
+        }
+        return summaries;
+    }
+
+
+    public TimetableBatchSummaryDTO batchSummary(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        refreshBatch(batch);
+
+        List<TimetablePublishAuditDTO> audits = publishAudits.getOrDefault(batch.getGeneratedBatchId(), List.of());
+        TimetablePublishAuditDTO latestAudit = audits.isEmpty() ? null : audits.get(0);
+
+        String status = latestAudit != null
+                ? latestAudit.getStatus()
+                : (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0 ? "REVIEW_REQUIRED" : "GENERATED_READY");
+
+        String message = latestAudit != null
+                ? latestAudit.getMessage()
+                : "Generated batch ready for review: " + batch.getGeneratedBatchId();
+
+        return new TimetableBatchSummaryDTO(
+                batch.getGeneratedBatchId(),
+                status,
+                batch.getTotalEntries(),
+                batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
+                batch.getConflictsDetected(),
+                batch.getOverloadRiskTeachers(),
+                batch.getCompletionPercentage(),
+                latestAudit == null ? null : latestAudit.getPublishedAt(),
+                latestAudit == null ? null : latestAudit.getApprovedBy(),
+                message
+        );
     }
 
     public TimetablePublishAuditDTO latestPublished() {
