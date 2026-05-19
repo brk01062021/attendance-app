@@ -14,6 +14,11 @@ import com.school.attendance.dto.TimetablePublishResponseDTO;
 import com.school.attendance.dto.TimetableRepairResultDTO;
 import com.school.attendance.dto.TimetablePublishAuditDTO;
 import com.school.attendance.dto.TimetableBatchSummaryDTO;
+import com.school.attendance.dto.TimetableArchiveSummaryDTO;
+import com.school.attendance.dto.TimetableBinaryExportDTO;
+import com.school.attendance.dto.TimetableLiveResponseDTO;
+import com.school.attendance.dto.TimetableNotificationDTO;
+import com.school.attendance.dto.TimetableVersionDTO;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -25,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/timetable")
@@ -147,4 +153,77 @@ public class TimetableGenerationController {
     public PrincipalTimetableIntelligenceDTO principalIntelligence(@PathVariable String batchId) {
         return timetableGenerationService.principalIntelligence(batchId);
     }
+
+    @GetMapping("/day18/live")
+    public TimetableLiveResponseDTO liveTimetable(
+            @RequestParam(required = false) String batchId,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) String className,
+            @RequestParam(required = false) String section
+    ) {
+        return timetableGenerationService.liveTimetable(batchId, role, teacherId, className, section);
+    }
+
+    @PostMapping("/day18/publish-lock/{batchId}")
+    public TimetablePublishResponseDTO publishLock(
+            @PathVariable String batchId,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestParam(required = false) String approvedBy
+    ) {
+        return timetableGenerationService.publishLock(batchId, role, approvedBy);
+    }
+
+    @PostMapping("/day18/swap/{batchId}")
+    public TimetableGenerationResponseDTO swapTimetableEntry(
+            @PathVariable String batchId,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestBody TimetableManualEditRequestDTO request
+    ) {
+        return timetableGenerationService.swapTimetableEntry(batchId, request, role);
+    }
+
+    @GetMapping("/day18/export/{batchId}")
+    public TimetableBinaryExportDTO binaryExport(
+            @PathVariable String batchId,
+            @RequestParam(defaultValue = "EXCEL") String format
+    ) {
+        return timetableGenerationService.binaryExport(batchId, format);
+    }
+
+    @GetMapping("/day18/versions/{batchId}")
+    public List<TimetableVersionDTO> versions(@PathVariable String batchId) {
+        return timetableGenerationService.versions(batchId);
+    }
+
+    @PostMapping("/day18/rollback/{batchId}/{versionNumber}")
+    public TimetableVersionDTO rollback(
+            @PathVariable String batchId,
+            @PathVariable Integer versionNumber,
+            @RequestParam(defaultValue = "ADMIN") String role
+    ) {
+        return timetableGenerationService.rollback(batchId, versionNumber, role);
+    }
+
+    @GetMapping("/day18/notifications/{batchId}")
+    public List<TimetableNotificationDTO> notifications(@PathVariable String batchId) {
+        return timetableGenerationService.notifications(batchId);
+    }
+
+    @GetMapping("/day18/archives")
+    public List<TimetableArchiveSummaryDTO> archives() {
+        return timetableGenerationService.archives();
+    }
+
+
+    @GetMapping("/day18/principal-analytics")
+    public PrincipalTimetableIntelligenceDTO day18PrincipalAnalytics(@RequestParam String batchId) {
+        return timetableGenerationService.principalIntelligence(batchId);
+    }
+
+    @GetMapping("/day18/status/{batchId}")
+    public Map<String, Object> day18Status(@PathVariable String batchId) {
+        return timetableGenerationService.day18Status(batchId);
+    }
+
 }

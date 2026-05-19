@@ -16,12 +16,19 @@ import com.school.attendance.dto.TimetableExportResponseDTO;
 import com.school.attendance.dto.PrincipalTimetableIntelligenceDTO;
 import com.school.attendance.dto.TimetablePublishAuditDTO;
 import com.school.attendance.dto.TimetableBatchSummaryDTO;
+import com.school.attendance.dto.TimetableArchiveSummaryDTO;
+import com.school.attendance.dto.TimetableBinaryExportDTO;
+import com.school.attendance.dto.TimetableLiveResponseDTO;
+import com.school.attendance.dto.TimetableNotificationDTO;
+import com.school.attendance.dto.TimetableVersionDTO;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -44,6 +51,10 @@ public class TimetableGenerationService {
 
     private final Map<String, TimetableGenerationResponseDTO> generatedBatches = new ConcurrentHashMap<>();
     private final Map<String, List<TimetablePublishAuditDTO>> publishAudits = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> publishLocks = new ConcurrentHashMap<>();
+    private final Map<String, List<TimetableVersionDTO>> versionHistory = new ConcurrentHashMap<>();
+    private final Map<String, List<TimetableNotificationDTO>> timetableNotifications = new ConcurrentHashMap<>();
+    private final Map<String, TimetableArchiveSummaryDTO> archiveHistory = new ConcurrentHashMap<>();
     private volatile String latestBatchId;
     private volatile String latestPublishedBatchId;
 
@@ -68,6 +79,7 @@ public class TimetableGenerationService {
         response.setCompletionPercentage(conflicts.isEmpty() ? 100 : Math.max(70, 100 - Math.min(25, conflicts.size() * 5)));
 
         generatedBatches.put(response.getGeneratedBatchId(), response);
+        addVersion(response.getGeneratedBatchId(), "SYSTEM", "GENERATED", response.getEntries().size(), "Initial generated timetable batch.");
         latestBatchId = response.getGeneratedBatchId();
         return response;
     }
@@ -544,6 +556,9 @@ public class TimetableGenerationService {
 
     public TimetableGenerationResponseDTO manualEdit(String batchId, TimetableManualEditRequestDTO request) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        if (Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()))) {
+            return batch;
+        }
         if (request == null || isBlank(request.getEntryId())) return batch;
         for (TimetableEntryDTO entry : batch.getEntries()) {
             if (request.getEntryId().equals(String.valueOf(entry.getId()))) {
@@ -562,6 +577,7 @@ public class TimetableGenerationService {
         }
         refreshBatch(batch);
         generatedBatches.put(batch.getGeneratedBatchId(), batch);
+        addVersion(batch.getGeneratedBatchId(), "Principal/Admin", "MANUAL_EDIT", batch.getEntries().size(), "Manual timetable edit/swap saved.");
         return batch;
     }
 
@@ -592,6 +608,10 @@ public class TimetableGenerationService {
         );
         if (success) {
             latestPublishedBatchId = batch.getGeneratedBatchId();
+            publishLocks.put(batch.getGeneratedBatchId(), true);
+            addVersion(batch.getGeneratedBatchId(), approvedBy, "PUBLISHED_LOCKED", batch.getEntries().size(), "Published timetable locked for production visibility.");
+            addNotification(batch.getGeneratedBatchId(), "TEACHERS_STUDENTS_PARENTS", "New timetable published", notificationMessage);
+            archiveHistory.put(batch.getGeneratedBatchId(), new TimetableArchiveSummaryDTO(batch.getGeneratedBatchId(), publishedAt, approvedBy, batch.getEntries().size(), "PUBLISHED_ARCHIVED", "Published timetable snapshot archived for Day 18 history."));
             TimetablePublishAuditDTO audit = new TimetablePublishAuditDTO(
                     "PUB-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
                     batch.getGeneratedBatchId(),
@@ -740,6 +760,170 @@ public class TimetableGenerationService {
         dto.setInsights(insights);
         dto.setTopWorkloadRisks(batch.getWorkloadSummary().stream().limit(5).toList());
         return dto;
+    }
+
+
+    public TimetableLiveResponseDTO liveTimetable(String batchId, String role, Long teacherId, String className, String section) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(isBlank(batchId) ? latestPublishedBatchId : batchId);
+        refreshBatch(batch);
+        String safeRole = isBlank(role) ? "ADMIN" : role.trim().toUpperCase();
+        boolean published = batch.getGeneratedBatchId().equals(latestPublishedBatchId) || Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
+        List<TimetableEntryDTO> filtered = new ArrayList<>(batch.getEntries());
+        if ("TEACHER".equals(safeRole) && teacherId != null) {
+            filtered = filtered.stream().filter(e -> teacherId.equals(e.getTeacherId())).collect(Collectors.toList());
+        } else if (("STUDENT".equals(safeRole) || "PARENT".equals(safeRole)) && !isBlank(className) && !isBlank(section)) {
+            filtered = filtered.stream().filter(e -> className.equalsIgnoreCase(e.getClassName()) && section.equalsIgnoreCase(e.getSection())).collect(Collectors.toList());
+        }
+        filtered.sort(Comparator.comparing(TimetableEntryDTO::getDayOfWeek).thenComparing(TimetableEntryDTO::getPeriodNumber));
+        String scope = "ADMIN".equals(safeRole) || "PRINCIPAL".equals(safeRole) ? "WHOLE_SCHOOL" : safeRole;
+        String message = published ? "Live published timetable loaded." : "Draft timetable loaded for validation. Publish and lock before parent/student rollout.";
+        return new TimetableLiveResponseDTO(batch.getGeneratedBatchId(), safeRole, scope, published, Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId())), message, filtered);
+    }
+
+    public TimetablePublishResponseDTO publishLock(String batchId, String role, String approvedBy) {
+        if (!isAdminRole(role)) {
+            TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+            return new TimetablePublishResponseDTO(false, batch.getGeneratedBatchId(), "RBAC_DENIED", "Only Admin or Principal can publish-lock timetable.", 0, batch.getConflictsDetected(), null, approvedBy, "Publish lock denied by role validation.");
+        }
+        return publish(batchId, approvedBy);
+    }
+
+    public TimetableGenerationResponseDTO swapTimetableEntry(String batchId, TimetableManualEditRequestDTO request, String role) {
+        if (!isAdminRole(role)) return findBatchOrCreateFallback(batchId);
+        return manualEdit(batchId, request);
+    }
+
+    public TimetableBinaryExportDTO binaryExport(String batchId, String format) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        refreshBatch(batch);
+        String safeFormat = isBlank(format) ? "EXCEL" : format.trim().toUpperCase();
+        byte[] bytes;
+        String fileName;
+        String contentType;
+        if ("PDF".equals(safeFormat)) {
+            bytes = buildSimplePdf(batch);
+            fileName = "vidyasetu-timetable-" + batch.getGeneratedBatchId() + ".pdf";
+            contentType = "application/pdf";
+        } else {
+            bytes = buildExcelHtml(batch).getBytes(StandardCharsets.UTF_8);
+            fileName = "vidyasetu-timetable-" + batch.getGeneratedBatchId() + ".xls";
+            contentType = "application/vnd.ms-excel";
+            safeFormat = "EXCEL";
+        }
+        return new TimetableBinaryExportDTO(batch.getGeneratedBatchId(), safeFormat, fileName, contentType, Base64.getEncoder().encodeToString(bytes), bytes.length, "Real downloadable " + safeFormat + " export generated as Base64 payload.");
+    }
+
+    public List<TimetableVersionDTO> versions(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        List<TimetableVersionDTO> versions = versionHistory.getOrDefault(batch.getGeneratedBatchId(), List.of());
+        return versions.isEmpty() ? List.of(new TimetableVersionDTO(1, batch.getGeneratedBatchId(), LocalDateTime.now().toString(), "SYSTEM", "CURRENT", batch.getEntries().size(), "Current server-session timetable snapshot.")) : versions;
+    }
+
+    public TimetableVersionDTO rollback(String batchId, Integer versionNumber, String role) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        if (!isAdminRole(role)) {
+            return new TimetableVersionDTO(versionNumber, batch.getGeneratedBatchId(), LocalDateTime.now().toString(), role, "RBAC_DENIED", batch.getEntries().size(), "Only Admin or Principal can rollback timetable versions.");
+        }
+        publishLocks.put(batch.getGeneratedBatchId(), false);
+        TimetableVersionDTO version = addVersion(batch.getGeneratedBatchId(), role, "ROLLBACK_READY", batch.getEntries().size(), "Rollback marker created for version " + versionNumber + ". Timetable unlocked for review/edit before republish.");
+        addNotification(batch.getGeneratedBatchId(), "ADMIN_PRINCIPAL", "Timetable rollback started", "Batch " + batch.getGeneratedBatchId() + " moved back to review mode.");
+        return version;
+    }
+
+    public List<TimetableNotificationDTO> notifications(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        return timetableNotifications.getOrDefault(batch.getGeneratedBatchId(), List.of());
+    }
+
+    public List<TimetableArchiveSummaryDTO> archives() {
+        return new ArrayList<>(archiveHistory.values());
+    }
+
+    public Map<String, Object> day18Status(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        Map<String, Object> status = new LinkedHashMap<>();
+        status.put("batchId", batch.getGeneratedBatchId());
+        status.put("latestPublished", batch.getGeneratedBatchId().equals(latestPublishedBatchId));
+        status.put("locked", Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId())));
+        status.put("versions", versions(batch.getGeneratedBatchId()).size());
+        status.put("notifications", notifications(batch.getGeneratedBatchId()).size());
+        status.put("archived", archiveHistory.containsKey(batch.getGeneratedBatchId()));
+        status.put("entries", batch.getEntries().size());
+        status.put("conflicts", batch.getConflictsDetected());
+        return status;
+    }
+
+
+    private boolean isAdminRole(String role) {
+        String safeRole = isBlank(role) ? "ADMIN" : role.trim().toUpperCase();
+        return "ADMIN".equals(safeRole) || "PRINCIPAL".equals(safeRole);
+    }
+
+    private TimetableVersionDTO addVersion(String batchId, String createdBy, String changeType, Integer entriesCount, String notes) {
+        String safeBatchId = isBlank(batchId) ? "UNKNOWN" : batchId;
+        List<TimetableVersionDTO> versions = versionHistory.computeIfAbsent(safeBatchId, key -> new ArrayList<>());
+        TimetableVersionDTO version = new TimetableVersionDTO(versions.size() + 1, safeBatchId, LocalDateTime.now().toString(), isBlank(createdBy) ? "SYSTEM" : createdBy, changeType, entriesCount, notes);
+        versions.add(0, version);
+        return version;
+    }
+
+    private void addNotification(String batchId, String audience, String title, String message) {
+        timetableNotifications.computeIfAbsent(batchId, key -> new ArrayList<>()).add(0, new TimetableNotificationDTO(
+                "TTN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
+                batchId,
+                audience,
+                title,
+                message,
+                LocalDateTime.now().toString()
+        ));
+    }
+
+    private String buildExcelHtml(TimetableGenerationResponseDTO batch) {
+        StringBuilder html = new StringBuilder();
+        html.append("<html><head><meta charset='UTF-8'></head><body>");
+        html.append("<h2>VidyaSetu Timetable - ").append(batch.getGeneratedBatchId()).append("</h2>");
+        html.append("<table border='1'><tr><th>Class</th><th>Section</th><th>Day</th><th>Period</th><th>Subject</th><th>Teacher</th><th>Room</th><th>Start</th><th>End</th></tr>");
+        batch.getEntries().stream()
+                .sorted(Comparator.comparing(TimetableEntryDTO::getClassName).thenComparing(TimetableEntryDTO::getSection).thenComparing(e -> DAYS.indexOf(e.getDayOfWeek())).thenComparing(TimetableEntryDTO::getPeriodNumber))
+                .forEach(e -> html.append("<tr><td>").append(escapeHtml(e.getClassName())).append("</td><td>")
+                        .append(escapeHtml(e.getSection())).append("</td><td>").append(escapeHtml(e.getDayOfWeek())).append("</td><td>")
+                        .append(e.getPeriodNumber()).append("</td><td>").append(escapeHtml(e.getSubjectName())).append("</td><td>")
+                        .append(escapeHtml(e.getTeacherName())).append("</td><td>").append(escapeHtml(e.getRoomNumber())).append("</td><td>")
+                        .append(escapeHtml(e.getStartTime())).append("</td><td>").append(escapeHtml(e.getEndTime())).append("</td></tr>"));
+        html.append("</table></body></html>");
+        return html.toString();
+    }
+
+    private byte[] buildSimplePdf(TimetableGenerationResponseDTO batch) {
+        StringBuilder text = new StringBuilder();
+        text.append("VidyaSetu Timetable ").append(batch.getGeneratedBatchId()).append("\\n");
+        batch.getEntries().stream().limit(60).forEach(e -> text.append(e.getClassName()).append(e.getSection()).append(" ")
+                .append(e.getDayOfWeek()).append(" P").append(e.getPeriodNumber()).append(" ")
+                .append(e.getSubjectName()).append(" - ").append(e.getTeacherName()).append("\\n"));
+        String stream = "BT /F1 10 Tf 40 780 Td " + pdfText(text.toString()) + " ET";
+        String obj1 = "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n";
+        String obj2 = "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n";
+        String obj3 = "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n";
+        String obj4 = "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n";
+        String obj5 = "5 0 obj << /Length " + stream.getBytes(StandardCharsets.UTF_8).length + " >> stream\n" + stream + "\nendstream endobj\n";
+        String body = obj1 + obj2 + obj3 + obj4 + obj5;
+        String pdf = "%PDF-1.4\n" + body + "trailer << /Root 1 0 R >>\n%%EOF";
+        return pdf.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private String pdfText(String raw) {
+        String[] lines = raw.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").split("\\n");
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) out.append(" T* ");
+            out.append("(").append(lines[i]).append(") Tj");
+        }
+        return out.toString();
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
     private boolean equalsText(String left, String right) {
