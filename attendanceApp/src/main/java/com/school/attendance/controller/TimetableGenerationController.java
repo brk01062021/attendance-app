@@ -19,6 +19,7 @@ import com.school.attendance.dto.TimetableBinaryExportDTO;
 import com.school.attendance.dto.TimetableLiveResponseDTO;
 import com.school.attendance.dto.TimetableNotificationDTO;
 import com.school.attendance.dto.TimetableVersionDTO;
+import com.school.attendance.dto.TimetableRolloutReadinessDTO;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -215,6 +216,11 @@ public class TimetableGenerationController {
         return timetableGenerationService.archives();
     }
 
+
+    @GetMapping({"/day20/rollout-readiness/{batchId}", "/operations/rollout-readiness/{batchId}"})
+    public TimetableRolloutReadinessDTO rolloutReadiness(@PathVariable String batchId) {
+        return timetableGenerationService.rolloutReadiness(batchId);
+    }
 
     @GetMapping({"/day18/principal-analytics", "/operations/principal-analytics"})
     public PrincipalTimetableIntelligenceDTO day18PrincipalAnalytics(@RequestParam String batchId) {

@@ -10,6 +10,7 @@ import com.school.attendance.dto.TimetableEntryDTO;
 import com.school.attendance.dto.TimetableGenerationRequestDTO;
 import com.school.attendance.dto.TimetableGenerationResponseDTO;
 import com.school.attendance.dto.TimetableRepairResultDTO;
+import com.school.attendance.dto.TimetableRolloutReadinessDTO;
 import com.school.attendance.dto.TimetablePublishResponseDTO;
 import com.school.attendance.dto.TimetableManualEditRequestDTO;
 import com.school.attendance.dto.TimetableExportResponseDTO;
@@ -837,6 +838,54 @@ public class TimetableGenerationService {
 
     public List<TimetableArchiveSummaryDTO> archives() {
         return new ArrayList<>(archiveHistory.values());
+    }
+
+    public TimetableRolloutReadinessDTO rolloutReadiness(String batchId) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        refreshBatch(batch);
+        boolean locked = Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
+        boolean latest = batch.getGeneratedBatchId().equals(latestPublishedBatchId);
+        int conflicts = batch.getConflictsDetected() == null ? 0 : batch.getConflictsDetected();
+        int notificationsCount = notifications(batch.getGeneratedBatchId()).size();
+        int versionsCount = versions(batch.getGeneratedBatchId()).size();
+        int teacherVisible = (int) batch.getEntries().stream().filter(e -> e.getTeacherId() != null).count();
+        int studentParentVisible = (int) batch.getEntries().stream().filter(e -> !isBlank(e.getClassName()) && !isBlank(e.getSection())).count();
+
+        List<String> blockers = new ArrayList<>();
+        if (!locked && !latest) blockers.add("Publish lock is not completed for this batch.");
+        if (conflicts > 0) blockers.add(conflicts + " conflict(s) still need repair before rollout.");
+        if (teacherVisible == 0) blockers.add("Teacher live timetable visibility has no mapped teacher entries.");
+        if (studentParentVisible == 0) blockers.add("Student/parent class-section visibility has no mapped entries.");
+
+        List<String> checks = new ArrayList<>();
+        checks.add(locked || latest ? "Publish lock/live rollout gate is active." : "Batch is still in draft/review mode.");
+        checks.add(teacherVisible + " teacher-visible entries available for teacher timetable view.");
+        checks.add(studentParentVisible + " class-section entries available for student/parent timetable view.");
+        checks.add(notificationsCount + " rollout notification(s) prepared for stakeholders.");
+        checks.add(versionsCount + " version/rollback record(s) available for audit trail.");
+
+        int score = 100;
+        if (!locked && !latest) score -= 30;
+        score -= Math.min(40, conflicts * 10);
+        if (teacherVisible == 0) score -= 15;
+        if (studentParentVisible == 0) score -= 15;
+        score = Math.max(0, score);
+
+        return new TimetableRolloutReadinessDTO(
+                batch.getGeneratedBatchId(),
+                blockers.isEmpty(),
+                locked,
+                latest,
+                batch.getEntries().size(),
+                teacherVisible,
+                studentParentVisible,
+                conflicts,
+                notificationsCount,
+                versionsCount,
+                score,
+                blockers,
+                checks
+        );
     }
 
     public Map<String, Object> day18Status(String batchId) {
