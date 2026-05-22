@@ -6,6 +6,9 @@ import com.school.attendance.dto.RegisterRequest;
 import com.school.attendance.entity.AppUser;
 import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.security.JwtUtil;
+import com.school.attendance.security.SecurityAccess;
+import com.school.attendance.tenant.TenantContext;
+import com.school.attendance.tenant.TenantUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,18 +33,23 @@ public class AuthController {
 
     @PostMapping("/register")
     public String register(@RequestBody RegisterRequest request) {
-        if (userRepository.findByUsername(request.getUsername()).isPresent()) {
-            return "Username already exists";
+        String schoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
+
+        if (userRepository.findByUsernameAndSchoolCodeIgnoreCase(request.getUsername(), schoolCode).isPresent()) {
+            return "Username already exists for school " + schoolCode;
         }
 
         AppUser user = new AppUser();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setRole(request.getRole());
+        user.setRole(SecurityAccess.normalizeRole(request.getRole()));
         user.setTeacherId(request.getTeacherId());
         user.setTeacherName(request.getTeacherName());
         user.setSchoolId(1L);
-        user.setDisplayName(request.getTeacherName() != null && !request.getTeacherName().isBlank() ? request.getTeacherName() : request.getUsername());
+        user.setSchoolCode(schoolCode);
+        user.setDisplayName(request.getTeacherName() != null && !request.getTeacherName().isBlank()
+                ? request.getTeacherName()
+                : request.getUsername());
         user.setSchoolName("VidyaSetu Demo School");
 
         userRepository.save(user);
@@ -51,24 +59,31 @@ public class AuthController {
 
     @PostMapping("/login")
     public AuthResponse login(@RequestBody LoginRequest request) {
-        AppUser user = userRepository.findByUsername(request.getUsername())
+        String requestedSchoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
+
+        AppUser user = userRepository.findByUsernameAndSchoolCodeIgnoreCase(request.getUsername(), requestedSchoolCode)
+                .or(() -> userRepository.findByUsername(request.getUsername()))
                 .orElseThrow(() -> new RuntimeException("Invalid username or password"));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new RuntimeException("Invalid username or password");
         }
 
-        String token = jwtUtil.generateToken(user.getUsername(), user.getRole());
+        String schoolCode = TenantUtils.normalizeOrDefault(user.getSchoolCode());
+        TenantContext.setSchoolId(schoolCode);
+
+        String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), schoolCode, user.getId());
 
         return new AuthResponse(
                 token,
                 user.getId(),
                 user.getSchoolId(),
+                schoolCode,
                 user.getTeacherId(),
                 user.getTeacherName(),
                 user.getDisplayName(),
                 user.getSchoolName(),
-                user.getRole()
+                SecurityAccess.normalizeRole(user.getRole())
         );
     }
 }

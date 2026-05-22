@@ -4,7 +4,8 @@ public class AuthResponse {
 
     private String token;
     private Long userId;
-    private Long schoolId;
+    private Long schoolId; // internal numeric id
+    private String schoolCode; // external immutable SaaS tenant id
     private Long teacherId;
     private String teacherName;
     private String displayName;
@@ -19,9 +20,22 @@ public class AuthResponse {
                         String displayName,
                         String schoolName,
                         String role) {
+        this(token, userId, schoolId, "DEMO", teacherId, teacherName, displayName, schoolName, role);
+    }
+
+    public AuthResponse(String token,
+                        Long userId,
+                        Long schoolId,
+                        String schoolCode,
+                        Long teacherId,
+                        String teacherName,
+                        String displayName,
+                        String schoolName,
+                        String role) {
         this.token = token;
         this.userId = userId;
         this.schoolId = schoolId;
+        this.schoolCode = schoolCode;
         this.teacherId = teacherId;
         this.teacherName = teacherName;
         this.displayName = displayName;
@@ -32,6 +46,8 @@ public class AuthResponse {
     public String getToken() { return token; }
     public Long getUserId() { return userId; }
     public Long getSchoolId() { return schoolId; }
+    public String getSchoolCode() { return schoolCode; }
+    public String getExternalSchoolId() { return schoolCode; }
     public Long getTeacherId() { return teacherId; }
     public String getTeacherName() { return teacherName; }
     public String getDisplayName() { return displayName; }

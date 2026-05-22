@@ -10,7 +10,11 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
 
     Optional<AppUser> findByUsername(String username);
 
+    Optional<AppUser> findByUsernameAndSchoolCodeIgnoreCase(String username, String schoolCode);
+
     Optional<AppUser> findByTeacherId(Long teacherId);
 
     List<AppUser> findByRoleIgnoreCase(String role);
+
+    List<AppUser> findBySchoolCodeIgnoreCase(String schoolCode);
 }

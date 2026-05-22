@@ -1,5 +1,6 @@
 package com.school.attendance.security;
 
+import com.school.attendance.tenant.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,22 +29,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
-        String path = request.getServletPath();
-
-        if (path.startsWith("/auth/")
-                || path.startsWith("/students/")
-                || path.equals("/students")
-                || path.startsWith("/attendance/")
-                || path.equals("/attendance")
-                || path.startsWith("/teacher-assignments/")
-                || path.equals("/teacher-assignments")
-                || path.startsWith("/teacher-schedules/")
-                || path.equals("/teacher-schedules")) {
-
-            filterChain.doFilter(request, response);
-            return;
-        }
-
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -56,15 +41,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String username = jwtUtil.extractUsername(token);
             String role = jwtUtil.extractRole(token);
+            String schoolId = jwtUtil.extractSchoolId(token);
 
             if (username != null && jwtUtil.isTokenValid(token)
                     && SecurityContextHolder.getContext().getAuthentication() == null) {
+
+                TenantContext.setSchoolId(schoolId);
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
                                 username,
                                 null,
-                                List.of(new SimpleGrantedAuthority("ROLE_" + role))
+                                List.of(new SimpleGrantedAuthority("ROLE_" + SecurityAccess.normalizeRole(role)))
                         );
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);

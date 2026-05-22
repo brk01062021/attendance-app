@@ -7,44 +7,23 @@ public class RegisterRequest {
     private String username;
     private String password;
     private String role;
+    private String schoolId; // external 4-char tenant id
 
-    public Long getTeacherId() {
-        return teacherId;
-    }
+    public Long getTeacherId() { return teacherId; }
+    public void setTeacherId(Long teacherId) { this.teacherId = teacherId; }
 
-    public void setTeacherId(Long teacherId) {
-        this.teacherId = teacherId;
-    }
+    public String getTeacherName() { return teacherName; }
+    public void setTeacherName(String teacherName) { this.teacherName = teacherName; }
 
-    public String getTeacherName() {
-        return teacherName;
-    }
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
 
-    public void setTeacherName(String teacherName) {
-        this.teacherName = teacherName;
-    }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
 
-    public String getUsername() {
-        return username;
-    }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
 
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
-    public String getPassword() {
-        return password;
-    }
-
-    public void setPassword(String password) {
-        this.password = password;
-    }
-
-    public String getRole() {
-        return role;
-    }
-
-    public void setRole(String role) {
-        this.role = role;
-    }
+    public String getSchoolId() { return schoolId; }
+    public void setSchoolId(String schoolId) { this.schoolId = schoolId; }
 }
