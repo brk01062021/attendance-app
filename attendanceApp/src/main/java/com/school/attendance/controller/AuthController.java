@@ -40,6 +40,9 @@ public class AuthController {
         user.setRole(request.getRole());
         user.setTeacherId(request.getTeacherId());
         user.setTeacherName(request.getTeacherName());
+        user.setSchoolId(1L);
+        user.setDisplayName(request.getTeacherName() != null && !request.getTeacherName().isBlank() ? request.getTeacherName() : request.getUsername());
+        user.setSchoolName("VidyaSetu Demo School");
 
         userRepository.save(user);
 
@@ -59,8 +62,12 @@ public class AuthController {
 
         return new AuthResponse(
                 token,
+                user.getId(),
+                user.getSchoolId(),
                 user.getTeacherId(),
                 user.getTeacherName(),
+                user.getDisplayName(),
+                user.getSchoolName(),
                 user.getRole()
         );
     }

@@ -14,6 +14,9 @@ public class AppUser {
     private String username;
     private String password;
     private String role;
+    private Long schoolId = 1L;
+    private String displayName;
+    private String schoolName = "VidyaSetu Demo School";
 
     public Long getId() {
         return id;
@@ -57,5 +60,35 @@ public class AppUser {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public Long getSchoolId() {
+        return schoolId == null ? 1L : schoolId;
+    }
+
+    public void setSchoolId(Long schoolId) {
+        this.schoolId = schoolId;
+    }
+
+    public String getDisplayName() {
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
+        }
+        if (teacherName != null && !teacherName.isBlank()) {
+            return teacherName;
+        }
+        return username;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public String getSchoolName() {
+        return schoolName == null || schoolName.isBlank() ? "VidyaSetu Demo School" : schoolName;
+    }
+
+    public void setSchoolName(String schoolName) {
+        this.schoolName = schoolName;
     }
 }
