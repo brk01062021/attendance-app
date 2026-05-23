@@ -1,0 +1,120 @@
+package com.school.attendance.service;
+
+import com.school.attendance.dto.imports.ImportPreviewResponseDTO;
+import com.school.attendance.dto.imports.ImportSheetPreviewDTO;
+import com.school.attendance.dto.imports.ImportValidationIssueDTO;
+import com.school.attendance.dto.imports.ImportValidationRequestDTO;
+import com.school.attendance.tenant.TenantContext;
+import com.school.attendance.tenant.TenantUtils;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
+@Service
+public class ImportValidationService {
+
+    private static final Set<String> ADMIN_IMPORT_ROLES = Set.of("ADMIN", "PRINCIPAL");
+    private static final List<String> REQUIRED_MASTER_SHEETS = List.of(
+            "SchoolProfile", "Students", "Parents", "Teachers", "TeacherAssignments",
+            "Subjects", "ClassSections", "TeacherPools", "Schedules"
+    );
+
+    public ImportPreviewResponseDTO validatePreview(ImportValidationRequestDTO request) {
+        ImportValidationRequestDTO safeRequest = request == null ? new ImportValidationRequestDTO() : request;
+        String requestSchoolId = TenantUtils.normalize(safeRequest.getSchoolId());
+        String contextSchoolId = TenantContext.getSchoolId();
+        String schoolId = TenantUtils.isValidSchoolId(requestSchoolId) ? requestSchoolId : contextSchoolId;
+        String role = normalizeRole(safeRequest.getRequestedByRole());
+
+        List<ImportValidationIssueDTO> issues = new ArrayList<>();
+        validateTenant(schoolId, contextSchoolId, requestSchoolId, issues);
+        validateRole(role, issues);
+
+        String importType = blankToDefault(safeRequest.getImportType(), "MASTER_WORKBOOK").toUpperCase(Locale.ROOT);
+        List<ImportSheetPreviewDTO> sheets = safeRequest.getSheets() == null ? List.of() : safeRequest.getSheets();
+        Map<String, Integer> rowCounts = new LinkedHashMap<>();
+
+        for (ImportSheetPreviewDTO sheet : sheets) {
+            String sheetName = blankToDefault(sheet.getSheetName(), "UNKNOWN");
+            int totalRows = Math.max(0, sheet.getTotalRows());
+            rowCounts.put(sheetName, totalRows);
+            if (totalRows == 0 && !"SchoolProfile".equalsIgnoreCase(sheetName)) {
+                issues.add(new ImportValidationIssueDTO(sheetName, 1, "rows", "WARNING", "Sheet has no data rows. Confirm this is expected before import."));
+            }
+        }
+
+        if (sheets.isEmpty()) {
+            issues.add(new ImportValidationIssueDTO("Workbook", 0, "sheets", "ERROR", "No workbook sheets were supplied for preview validation."));
+        }
+
+        validateRequiredSheets(sheets, issues);
+
+        boolean hasErrors = issues.stream().anyMatch(issue -> "ERROR".equalsIgnoreCase(issue.getSeverity()));
+        ImportPreviewResponseDTO response = new ImportPreviewResponseDTO();
+        response.setSchoolId(schoolId);
+        response.setImportType(importType);
+        response.setFileName(blankToDefault(safeRequest.getFileName(), "pending-upload.xlsx"));
+        response.setTenantSafe(!hasErrors && TenantUtils.isValidSchoolId(schoolId));
+        response.setValid(!hasErrors);
+        response.setStatus(hasErrors ? "BLOCKED" : issues.isEmpty() ? "READY_TO_IMPORT" : "READY_WITH_WARNINGS");
+        response.setSummary(buildSummary(rowCounts, issues));
+        response.setRowCounts(rowCounts);
+        response.setPreviewSheets(new ArrayList<>(sheets));
+        response.setIssues(issues);
+        return response;
+    }
+
+    private void validateTenant(String schoolId, String contextSchoolId, String requestSchoolId, List<ImportValidationIssueDTO> issues) {
+        if (requestSchoolId != null && !TenantUtils.isValidSchoolId(requestSchoolId)) {
+            issues.add(new ImportValidationIssueDTO("Workbook", 0, "school_id", "ERROR", "school_id must be exactly 4 uppercase alphanumeric characters."));
+            return;
+        }
+        if (!TenantUtils.isValidSchoolId(schoolId)) {
+            issues.add(new ImportValidationIssueDTO("Workbook", 0, "school_id", "ERROR", "school_id must be exactly 4 uppercase alphanumeric characters."));
+            return;
+        }
+        if (requestSchoolId != null && TenantUtils.isValidSchoolId(requestSchoolId) && !requestSchoolId.equals(contextSchoolId)) {
+            issues.add(new ImportValidationIssueDTO("Workbook", 0, "school_id", "ERROR", "Request school_id does not match active tenant context."));
+        }
+    }
+
+    private void validateRole(String role, List<ImportValidationIssueDTO> issues) {
+        if (!ADMIN_IMPORT_ROLES.contains(role)) {
+            issues.add(new ImportValidationIssueDTO("Workbook", 0, "role", "ERROR", "Only ADMIN or PRINCIPAL can validate and process school imports."));
+        }
+    }
+
+    private void validateRequiredSheets(List<ImportSheetPreviewDTO> sheets, List<ImportValidationIssueDTO> issues) {
+        Set<String> supplied = sheets.stream()
+                .map(ImportSheetPreviewDTO::getSheetName)
+                .filter(name -> name != null && !name.isBlank())
+                .map(String::trim)
+                .collect(java.util.stream.Collectors.toSet());
+
+        for (String requiredSheet : REQUIRED_MASTER_SHEETS) {
+            if (!supplied.contains(requiredSheet)) {
+                issues.add(new ImportValidationIssueDTO(requiredSheet, 0, "sheet", "ERROR", "Required sheet is missing from the onboarding workbook."));
+            }
+        }
+    }
+
+    private String buildSummary(Map<String, Integer> rowCounts, List<ImportValidationIssueDTO> issues) {
+        int totalRows = rowCounts.values().stream().mapToInt(Integer::intValue).sum();
+        long errors = issues.stream().filter(issue -> "ERROR".equalsIgnoreCase(issue.getSeverity())).count();
+        long warnings = issues.stream().filter(issue -> "WARNING".equalsIgnoreCase(issue.getSeverity())).count();
+        return "Preview checked " + rowCounts.size() + " sheet(s), " + totalRows + " row(s), " + errors + " error(s), " + warnings + " warning(s).";
+    }
+
+    private String normalizeRole(String role) {
+        return blankToDefault(role, "ADMIN").trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String blankToDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+}
