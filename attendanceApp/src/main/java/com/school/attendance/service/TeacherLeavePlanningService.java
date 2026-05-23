@@ -74,6 +74,10 @@ public class TeacherLeavePlanningService {
         return response;
     }
 
+    public List<TeacherLeaveEnquiry> teacherLeaveHistory(Long teacherId) {
+        return teacherLeaveEnquiryRepository.findByTeacherIdOrderByRequestedAtDesc(teacherId);
+    }
+
     public List<TeacherLeaveEnquiry> pendingLeaveEnquiries(String fromDate, String toDate) {
         if (fromDate == null || toDate == null || fromDate.isBlank() || toDate.isBlank()) {
             return teacherLeaveEnquiryRepository.findByStatusOrderByRequestedAtDesc("PENDING");
@@ -104,6 +108,7 @@ public class TeacherLeavePlanningService {
         enquiry.setAdminRemarks(adminRemarks);
         enquiry.setDecidedAt(java.time.LocalDateTime.now());
         teacherLeaveEnquiryRepository.save(enquiry);
+        createTeacherDecisionNotification(enquiry, "APPROVED", adminRemarks);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("message", "Leave enquiry approved. Replacement workflow can now start.");
@@ -121,12 +126,25 @@ public class TeacherLeavePlanningService {
         enquiry.setAdminRemarks(adminRemarks);
         enquiry.setDecidedAt(java.time.LocalDateTime.now());
         teacherLeaveEnquiryRepository.save(enquiry);
+        createTeacherDecisionNotification(enquiry, "REJECTED", adminRemarks);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("message", "Leave enquiry rejected");
         response.put("enquiryId", enquiry.getId());
         response.put("status", enquiry.getStatus());
         return response;
+    }
+
+    private void createTeacherDecisionNotification(TeacherLeaveEnquiry enquiry, String status, String adminRemarks) {
+        Notification notification = new Notification();
+        notification.setUserId(enquiry.getTeacherId());
+        notification.setRole("TEACHER");
+        notification.setTitle("Leave Enquiry " + status);
+        notification.setType("TEACHER_LEAVE_STATUS");
+        String remarks = adminRemarks == null || adminRemarks.isBlank() ? "No remarks provided." : adminRemarks;
+        notification.setMessage("Your leave enquiry from " + enquiry.getFromDate() + " to " + enquiry.getToDate()
+                + " was " + status.toLowerCase() + ". Remarks: " + remarks);
+        notificationRepository.save(notification);
     }
 
     private void createRoleNotification(String role, TeacherLeaveEnquiry enquiry) {

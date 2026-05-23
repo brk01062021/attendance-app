@@ -35,6 +35,11 @@ public class TeacherLeaveController {
         return teacherLeavePlanningService.submitLeave(request);
     }
 
+    @GetMapping("/enquiry/history/{teacherId}")
+    public List<TeacherLeaveEnquiry> teacherLeaveHistory(@PathVariable Long teacherId) {
+        return teacherLeavePlanningService.teacherLeaveHistory(teacherId);
+    }
+
     @GetMapping("/admin/enquiries")
     public List<TeacherLeaveEnquiry> pendingLeaveEnquiries(
             @RequestParam(required = false) String fromDate,
