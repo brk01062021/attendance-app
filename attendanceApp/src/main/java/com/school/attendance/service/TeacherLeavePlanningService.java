@@ -3,8 +3,12 @@ package com.school.attendance.service;
 import com.school.attendance.dto.ReplacementRecommendationDTO;
 import com.school.attendance.dto.TeacherLeaveRequestDTO;
 import com.school.attendance.dto.TeacherWorkloadProtectionDTO;
+import com.school.attendance.entity.Notification;
+import com.school.attendance.entity.TeacherLeaveEnquiry;
 import com.school.attendance.entity.TeacherSchedule;
 import com.school.attendance.entity.TeacherScheduleStatus;
+import com.school.attendance.repository.NotificationRepository;
+import com.school.attendance.repository.TeacherLeaveEnquiryRepository;
 import com.school.attendance.repository.TeacherScheduleRepository;
 import org.springframework.stereotype.Service;
 
@@ -16,9 +20,17 @@ import java.util.stream.Collectors;
 public class TeacherLeavePlanningService {
 
     private final TeacherScheduleRepository teacherScheduleRepository;
+    private final TeacherLeaveEnquiryRepository teacherLeaveEnquiryRepository;
+    private final NotificationRepository notificationRepository;
 
-    public TeacherLeavePlanningService(TeacherScheduleRepository teacherScheduleRepository) {
+    public TeacherLeavePlanningService(
+            TeacherScheduleRepository teacherScheduleRepository,
+            TeacherLeaveEnquiryRepository teacherLeaveEnquiryRepository,
+            NotificationRepository notificationRepository
+    ) {
         this.teacherScheduleRepository = teacherScheduleRepository;
+        this.teacherLeaveEnquiryRepository = teacherLeaveEnquiryRepository;
+        this.notificationRepository = notificationRepository;
     }
 
     public List<ReplacementRecommendationDTO> previewReplacements(TeacherLeaveRequestDTO request) {
@@ -30,6 +42,102 @@ public class TeacherLeavePlanningService {
         return leavePeriods.stream()
                 .map(this::buildBestRecommendation)
                 .toList();
+    }
+
+
+    public Map<String, Object> submitLeaveEnquiry(TeacherLeaveRequestDTO request) {
+        LocalDate from = LocalDate.parse(request.getFromDate());
+        LocalDate to = LocalDate.parse(request.getToDate());
+        if (to.isBefore(from)) {
+            throw new IllegalArgumentException("To date cannot be before from date");
+        }
+
+        TeacherLeaveEnquiry enquiry = new TeacherLeaveEnquiry();
+        enquiry.setTeacherId(request.getTeacherId());
+        enquiry.setTeacherName(request.getTeacherName());
+        enquiry.setFromDate(from);
+        enquiry.setToDate(to);
+        enquiry.setLeaveType(request.getLeaveType() == null || request.getLeaveType().isBlank() ? "PLANNED_LEAVE" : request.getLeaveType());
+        enquiry.setReason(request.getReason());
+        enquiry.setStatus("PENDING");
+        TeacherLeaveEnquiry saved = teacherLeaveEnquiryRepository.save(enquiry);
+
+        createRoleNotification("ADMIN", saved);
+        createRoleNotification("PRINCIPAL", saved);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("message", "Leave enquiry submitted successfully");
+        response.put("enquiryId", saved.getId());
+        response.put("status", saved.getStatus());
+        response.put("requiresAdminApproval", true);
+        response.put("notificationSentTo", List.of("ADMIN", "PRINCIPAL"));
+        return response;
+    }
+
+    public List<TeacherLeaveEnquiry> pendingLeaveEnquiries(String fromDate, String toDate) {
+        if (fromDate == null || toDate == null || fromDate.isBlank() || toDate.isBlank()) {
+            return teacherLeaveEnquiryRepository.findByStatusOrderByRequestedAtDesc("PENDING");
+        }
+        LocalDate from = LocalDate.parse(fromDate);
+        LocalDate to = LocalDate.parse(toDate);
+        return teacherLeaveEnquiryRepository.findByFromDateLessThanEqualAndToDateGreaterThanEqualOrderByRequestedAtDesc(to, from)
+                .stream()
+                .filter(item -> "PENDING".equalsIgnoreCase(item.getStatus()))
+                .toList();
+    }
+
+    public Map<String, Object> approveLeaveEnquiry(Long enquiryId, String adminRemarks) {
+        TeacherLeaveEnquiry enquiry = teacherLeaveEnquiryRepository.findById(enquiryId)
+                .orElseThrow(() -> new IllegalArgumentException("Leave enquiry not found: " + enquiryId));
+
+        TeacherScheduleStatus leaveStatus = "UNPLANNED_LEAVE".equalsIgnoreCase(enquiry.getLeaveType())
+                ? TeacherScheduleStatus.UNPLANNED_LEAVE
+                : TeacherScheduleStatus.PLANNED_LEAVE;
+
+        List<TeacherSchedule> schedules = teacherScheduleRepository
+                .findByTeacherIdAndScheduleDateBetweenOrderByScheduleDateAscStartTimeAsc(
+                        enquiry.getTeacherId(), enquiry.getFromDate(), enquiry.getToDate());
+        schedules.forEach(schedule -> schedule.setStatus(leaveStatus));
+        teacherScheduleRepository.saveAll(schedules);
+
+        enquiry.setStatus("APPROVED");
+        enquiry.setAdminRemarks(adminRemarks);
+        enquiry.setDecidedAt(java.time.LocalDateTime.now());
+        teacherLeaveEnquiryRepository.save(enquiry);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("message", "Leave enquiry approved. Replacement workflow can now start.");
+        response.put("enquiryId", enquiry.getId());
+        response.put("affectedPeriods", schedules.size());
+        response.put("status", enquiry.getStatus());
+        response.put("scheduleStatus", leaveStatus.name());
+        return response;
+    }
+
+    public Map<String, Object> rejectLeaveEnquiry(Long enquiryId, String adminRemarks) {
+        TeacherLeaveEnquiry enquiry = teacherLeaveEnquiryRepository.findById(enquiryId)
+                .orElseThrow(() -> new IllegalArgumentException("Leave enquiry not found: " + enquiryId));
+        enquiry.setStatus("REJECTED");
+        enquiry.setAdminRemarks(adminRemarks);
+        enquiry.setDecidedAt(java.time.LocalDateTime.now());
+        teacherLeaveEnquiryRepository.save(enquiry);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("message", "Leave enquiry rejected");
+        response.put("enquiryId", enquiry.getId());
+        response.put("status", enquiry.getStatus());
+        return response;
+    }
+
+    private void createRoleNotification(String role, TeacherLeaveEnquiry enquiry) {
+        Notification notification = new Notification();
+        notification.setRole(role);
+        notification.setTitle("Teacher Leave Enquiry");
+        notification.setType("TEACHER_LEAVE_ENQUIRY");
+        notification.setMessage((enquiry.getTeacherName() == null ? "Teacher" : enquiry.getTeacherName())
+                + " requested leave from " + enquiry.getFromDate() + " to " + enquiry.getToDate()
+                + ". Review it in Leave Approvals.");
+        notificationRepository.save(notification);
     }
 
     public Map<String, Object> submitLeave(TeacherLeaveRequestDTO request) {
