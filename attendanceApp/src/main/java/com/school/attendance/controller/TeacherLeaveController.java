@@ -25,7 +25,7 @@ public class TeacherLeaveController {
         return teacherLeavePlanningService.previewReplacements(request);
     }
 
-    @PostMapping("/enquiry")
+    @PostMapping({"/enquiry", "/teacher/enquiry"})
     public Map<String, Object> submitLeaveEnquiry(@RequestBody TeacherLeaveRequestDTO request) {
         return teacherLeavePlanningService.submitLeaveEnquiry(request);
     }
@@ -40,15 +40,24 @@ public class TeacherLeaveController {
         return teacherLeavePlanningService.teacherLeaveHistory(teacherId);
     }
 
-    @GetMapping("/admin/enquiries")
+    @GetMapping("/teacher/enquiries")
+    public List<TeacherLeaveEnquiry> teacherLeaveHistoryForTeacher(
+            @RequestParam Long teacherId,
+            @RequestParam(required = false) String schoolId
+    ) {
+        return teacherLeavePlanningService.teacherLeaveHistory(teacherId);
+    }
+
+    @GetMapping({"/admin/enquiries", "/principal/enquiries"})
     public List<TeacherLeaveEnquiry> pendingLeaveEnquiries(
             @RequestParam(required = false) String fromDate,
-            @RequestParam(required = false) String toDate
+            @RequestParam(required = false) String toDate,
+            @RequestParam(required = false) String schoolId
     ) {
         return teacherLeavePlanningService.pendingLeaveEnquiries(fromDate, toDate);
     }
 
-    @PostMapping("/admin/enquiries/{enquiryId}/approve")
+    @PostMapping({"/admin/enquiries/{enquiryId}/approve", "/principal/enquiries/{enquiryId}/approve"})
     public Map<String, Object> approveLeaveEnquiry(
             @PathVariable Long enquiryId,
             @RequestParam(required = false) String adminRemarks
@@ -56,7 +65,7 @@ public class TeacherLeaveController {
         return teacherLeavePlanningService.approveLeaveEnquiry(enquiryId, adminRemarks);
     }
 
-    @PostMapping("/admin/enquiries/{enquiryId}/reject")
+    @PostMapping({"/admin/enquiries/{enquiryId}/reject", "/principal/enquiries/{enquiryId}/reject"})
     public Map<String, Object> rejectLeaveEnquiry(
             @PathVariable Long enquiryId,
             @RequestParam(required = false) String adminRemarks

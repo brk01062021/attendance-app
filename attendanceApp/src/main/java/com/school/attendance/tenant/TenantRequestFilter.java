@@ -23,8 +23,12 @@ public class TenantRequestFilter extends OncePerRequestFilter {
         try {
             String requestedSchoolId = request.getHeader(SCHOOL_ID_HEADER);
             if (requestedSchoolId == null || requestedSchoolId.isBlank()) {
+                requestedSchoolId = request.getParameter("schoolId");
+            }
+            if (requestedSchoolId == null || requestedSchoolId.isBlank()) {
                 requestedSchoolId = request.getParameter("school_id");
             }
+
             TenantContext.setSchoolId(requestedSchoolId);
             response.setHeader(SCHOOL_ID_HEADER, TenantContext.getSchoolId());
             filterChain.doFilter(request, response);

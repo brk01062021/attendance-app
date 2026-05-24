@@ -119,6 +119,15 @@ public class NotificationController {
         return notificationRepository.findByUserIdAndRoleOrderByCreatedAtDesc(userId, role);
     }
 
+    @GetMapping("/unread-count")
+    public java.util.Map<String, Object> getUnreadCount(
+            @RequestParam Long userId,
+            @RequestParam String role
+    ) {
+        long count = notificationRepository.countByUserIdAndRoleAndReadFalse(userId, role);
+        return java.util.Map.of("userId", userId, "role", role, "unreadCount", count);
+    }
+
     @GetMapping("/unread")
     public List<Notification> getUnreadNotifications(
             @RequestParam Long userId,

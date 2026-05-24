@@ -3,10 +3,12 @@ package com.school.attendance.service;
 import com.school.attendance.dto.ReplacementRecommendationDTO;
 import com.school.attendance.dto.TeacherLeaveRequestDTO;
 import com.school.attendance.dto.TeacherWorkloadProtectionDTO;
+import com.school.attendance.entity.AppUser;
 import com.school.attendance.entity.Notification;
 import com.school.attendance.entity.TeacherLeaveEnquiry;
 import com.school.attendance.entity.TeacherSchedule;
 import com.school.attendance.entity.TeacherScheduleStatus;
+import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.repository.NotificationRepository;
 import com.school.attendance.repository.TeacherLeaveEnquiryRepository;
 import com.school.attendance.repository.TeacherScheduleRepository;
@@ -22,15 +24,18 @@ public class TeacherLeavePlanningService {
     private final TeacherScheduleRepository teacherScheduleRepository;
     private final TeacherLeaveEnquiryRepository teacherLeaveEnquiryRepository;
     private final NotificationRepository notificationRepository;
+    private final AppUserRepository appUserRepository;
 
     public TeacherLeavePlanningService(
             TeacherScheduleRepository teacherScheduleRepository,
             TeacherLeaveEnquiryRepository teacherLeaveEnquiryRepository,
-            NotificationRepository notificationRepository
+            NotificationRepository notificationRepository,
+            AppUserRepository appUserRepository
     ) {
         this.teacherScheduleRepository = teacherScheduleRepository;
         this.teacherLeaveEnquiryRepository = teacherLeaveEnquiryRepository;
         this.notificationRepository = notificationRepository;
+        this.appUserRepository = appUserRepository;
     }
 
     public List<ReplacementRecommendationDTO> previewReplacements(TeacherLeaveRequestDTO request) {
@@ -46,6 +51,8 @@ public class TeacherLeavePlanningService {
 
 
     public Map<String, Object> submitLeaveEnquiry(TeacherLeaveRequestDTO request) {
+        validateLeaveEnquiryRequest(request);
+
         LocalDate from = LocalDate.parse(request.getFromDate());
         LocalDate to = LocalDate.parse(request.getToDate());
         if (to.isBefore(from)) {
@@ -54,24 +61,58 @@ public class TeacherLeavePlanningService {
 
         TeacherLeaveEnquiry enquiry = new TeacherLeaveEnquiry();
         enquiry.setTeacherId(request.getTeacherId());
-        enquiry.setTeacherName(request.getTeacherName());
+        enquiry.setTeacherName(
+                request.getTeacherName() == null || request.getTeacherName().isBlank()
+                        ? "Teacher " + request.getTeacherId()
+                        : request.getTeacherName().trim()
+        );
         enquiry.setFromDate(from);
         enquiry.setToDate(to);
         enquiry.setLeaveType(request.getLeaveType() == null || request.getLeaveType().isBlank() ? "PLANNED_LEAVE" : request.getLeaveType());
-        enquiry.setReason(request.getReason());
+        enquiry.setReason(request.getReason() == null ? "" : request.getReason().trim());
         enquiry.setStatus("PENDING");
         TeacherLeaveEnquiry saved = teacherLeaveEnquiryRepository.save(enquiry);
 
-        createRoleNotification("ADMIN", saved);
-        createRoleNotification("PRINCIPAL", saved);
+        List<String> notificationSentTo = new ArrayList<>();
+        if (createRoleNotificationSafely("ADMIN", saved)) {
+            notificationSentTo.add("ADMIN");
+        }
+        if (createRoleNotificationSafely("PRINCIPAL", saved)) {
+            notificationSentTo.add("PRINCIPAL");
+        }
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("message", "Leave enquiry submitted successfully");
         response.put("enquiryId", saved.getId());
         response.put("status", saved.getStatus());
         response.put("requiresAdminApproval", true);
-        response.put("notificationSentTo", List.of("ADMIN", "PRINCIPAL"));
+        response.put("notificationSentTo", notificationSentTo);
         return response;
+    }
+
+    private void validateLeaveEnquiryRequest(TeacherLeaveRequestDTO request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Leave enquiry request body is required");
+        }
+        if (request.getTeacherId() == null || request.getTeacherId() <= 0) {
+            throw new IllegalArgumentException("teacherId is required");
+        }
+        if (request.getFromDate() == null || request.getFromDate().isBlank()) {
+            throw new IllegalArgumentException("fromDate is required");
+        }
+        if (request.getToDate() == null || request.getToDate().isBlank()) {
+            throw new IllegalArgumentException("toDate is required");
+        }
+    }
+
+    private boolean createRoleNotificationSafely(String role, TeacherLeaveEnquiry enquiry) {
+        try {
+            createRoleNotification(role, enquiry);
+            return true;
+        } catch (Exception ex) {
+            System.err.println("Leave enquiry saved, but " + role + " notification failed: " + ex.getMessage());
+            return false;
+        }
     }
 
     public List<TeacherLeaveEnquiry> teacherLeaveHistory(Long teacherId) {
@@ -136,26 +177,64 @@ public class TeacherLeavePlanningService {
     }
 
     private void createTeacherDecisionNotification(TeacherLeaveEnquiry enquiry, String status, String adminRemarks) {
-        Notification notification = new Notification();
-        notification.setUserId(enquiry.getTeacherId());
-        notification.setRole("TEACHER");
-        notification.setTitle("Leave Enquiry " + status);
-        notification.setType("TEACHER_LEAVE_STATUS");
         String remarks = adminRemarks == null || adminRemarks.isBlank() ? "No remarks provided." : adminRemarks;
-        notification.setMessage("Your leave enquiry from " + enquiry.getFromDate() + " to " + enquiry.getToDate()
-                + " was " + status.toLowerCase() + ". Remarks: " + remarks);
-        notificationRepository.save(notification);
+        String message = "Your leave enquiry from " + enquiry.getFromDate() + " to " + enquiry.getToDate()
+                + " was " + status.toLowerCase() + ". Remarks: " + remarks;
+
+        Set<Long> targetUserIds = new LinkedHashSet<>();
+        if (enquiry.getTeacherId() != null) {
+            targetUserIds.add(enquiry.getTeacherId());
+            appUserRepository.findByTeacherId(enquiry.getTeacherId()).map(AppUser::getId).ifPresent(targetUserIds::add);
+        }
+
+        List<Notification> notifications = targetUserIds.stream().map(userId -> {
+            Notification notification = new Notification();
+            notification.setUserId(userId);
+            notification.setRole("TEACHER");
+            notification.setTitle("Leave Enquiry " + status);
+            notification.setType("TEACHER_LEAVE_STATUS");
+            notification.setMessage(message);
+            notification.setRead(false);
+            notification.setCreatedAt(java.time.LocalDateTime.now());
+            return notification;
+        }).toList();
+
+        if (!notifications.isEmpty()) {
+            notificationRepository.saveAll(notifications);
+        }
     }
 
     private void createRoleNotification(String role, TeacherLeaveEnquiry enquiry) {
+        List<AppUser> reviewers = appUserRepository.findByRoleIgnoreCase(role);
+        if (reviewers == null || reviewers.isEmpty()) {
+            Notification notification = buildLeaveReviewNotification(role, enquiry);
+            notification.setUserId(1L);
+            notificationRepository.save(notification);
+            return;
+        }
+
+        List<Notification> notifications = reviewers.stream()
+                .map(user -> {
+                    Notification notification = buildLeaveReviewNotification(user.getRole(), enquiry);
+                    notification.setUserId(user.getId());
+                    notification.setSchoolId(user.getSchoolId());
+                    return notification;
+                })
+                .toList();
+        notificationRepository.saveAll(notifications);
+    }
+
+    private Notification buildLeaveReviewNotification(String role, TeacherLeaveEnquiry enquiry) {
         Notification notification = new Notification();
         notification.setRole(role);
         notification.setTitle("Teacher Leave Enquiry");
         notification.setType("TEACHER_LEAVE_ENQUIRY");
+        notification.setRead(false);
+        notification.setCreatedAt(java.time.LocalDateTime.now());
         notification.setMessage((enquiry.getTeacherName() == null ? "Teacher" : enquiry.getTeacherName())
                 + " requested leave from " + enquiry.getFromDate() + " to " + enquiry.getToDate()
                 + ". Review it in Leave Approvals.");
-        notificationRepository.save(notification);
+        return notification;
     }
 
     public Map<String, Object> submitLeave(TeacherLeaveRequestDTO request) {
