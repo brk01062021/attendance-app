@@ -46,6 +46,7 @@ public class ImportValidationService {
             if (totalRows == 0 && !"SchoolProfile".equalsIgnoreCase(sheetName)) {
                 issues.add(new ImportValidationIssueDTO(sheetName, 1, "rows", "WARNING", "Sheet has no data rows. Confirm this is expected before import."));
             }
+            validateSheetHeaders(sheetName, sheet.getHeaders(), issues);
         }
 
         if (sheets.isEmpty()) {
@@ -99,6 +100,31 @@ public class ImportValidationService {
         for (String requiredSheet : REQUIRED_MASTER_SHEETS) {
             if (!supplied.contains(requiredSheet)) {
                 issues.add(new ImportValidationIssueDTO(requiredSheet, 0, "sheet", "ERROR", "Required sheet is missing from the onboarding workbook."));
+            }
+        }
+    }
+
+
+    private void validateSheetHeaders(String sheetName, List<String> headers, List<ImportValidationIssueDTO> issues) {
+        Set<String> normalizedHeaders = headers == null ? Set.of() : headers.stream()
+                                                                     .filter(name -> name != null && !name.isBlank())
+                                                                     .map(name -> name.trim().toLowerCase(Locale.ROOT).replace(" ", "_").replace("-", "_"))
+                                                                     .collect(java.util.stream.Collectors.toSet());
+
+        Map<String, List<String>> requiredHeaders = Map.of(
+                "Students", List.of("admission_no", "student_name", "class_name", "section"),
+                "Parents", List.of("admission_no", "parent_name"),
+                "Teachers", List.of("teacher_id", "teacher_name"),
+                "TeacherAssignments", List.of("teacher_id", "class_name", "section", "subject"),
+                "ClassSections", List.of("class_name", "section")
+        );
+
+        List<String> required = requiredHeaders.get(sheetName);
+        if (required == null) return;
+
+        for (String header : required) {
+            if (!normalizedHeaders.contains(header)) {
+                issues.add(new ImportValidationIssueDTO(sheetName, 1, header, "WARNING", "Recommended column is missing for full import validation. Preview can continue, but commit validation may require this field."));
             }
         }
     }
