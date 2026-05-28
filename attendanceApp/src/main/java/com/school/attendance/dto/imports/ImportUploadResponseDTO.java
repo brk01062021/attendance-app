@@ -10,6 +10,7 @@ public class ImportUploadResponseDTO {
     private String fileName;
     private String checksum;
     private String status;
+    private String importBatchId;
     private boolean duplicateFile;
     private ImportPreviewResponseDTO preview;
     private LocalDateTime uploadedAt;
@@ -28,6 +29,8 @@ public class ImportUploadResponseDTO {
     public void setChecksum(String checksum) { this.checksum = checksum; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getImportBatchId() { return importBatchId; }
+    public void setImportBatchId(String importBatchId) { this.importBatchId = importBatchId; }
     public boolean isDuplicateFile() { return duplicateFile; }
     public void setDuplicateFile(boolean duplicateFile) { this.duplicateFile = duplicateFile; }
     public ImportPreviewResponseDTO getPreview() { return preview; }

@@ -6,6 +6,7 @@ public class ImportCommitResponseDTO {
     private Long uploadId;
     private String schoolId;
     private String status;
+    private String importBatchId;
     private String message;
     private boolean committed;
     private boolean rolledBack;
@@ -17,6 +18,8 @@ public class ImportCommitResponseDTO {
     public void setSchoolId(String schoolId) { this.schoolId = schoolId; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getImportBatchId() { return importBatchId; }
+    public void setImportBatchId(String importBatchId) { this.importBatchId = importBatchId; }
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
     public boolean isCommitted() { return committed; }

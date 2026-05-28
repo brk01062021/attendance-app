@@ -79,7 +79,11 @@ public class ImportValidationService {
             issues.add(new ImportValidationIssueDTO("Workbook", 0, "school_id", "ERROR", "school_id must be exactly 4 uppercase alphanumeric characters."));
             return;
         }
-        if (requestSchoolId != null && TenantUtils.isValidSchoolId(requestSchoolId) && !requestSchoolId.equals(contextSchoolId)) {
+
+        boolean requestValid = TenantUtils.isValidSchoolId(requestSchoolId);
+        boolean contextValid = TenantUtils.isValidSchoolId(contextSchoolId);
+        boolean contextIsDefault = TenantContext.DEFAULT_SCHOOL_ID.equalsIgnoreCase(contextSchoolId);
+        if (requestValid && contextValid && !contextIsDefault && !requestSchoolId.equalsIgnoreCase(contextSchoolId)) {
             issues.add(new ImportValidationIssueDTO("Workbook", 0, "school_id", "ERROR", "Request school_id does not match active tenant context."));
         }
     }

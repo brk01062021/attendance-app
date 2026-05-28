@@ -9,6 +9,7 @@ public class ImportUploadHistoryDTO {
     private String importType;
     private String academicYear;
     private String status;
+    private String importBatchId;
     private int totalRows;
     private int totalSheets;
     private int errorCount;
@@ -29,6 +30,8 @@ public class ImportUploadHistoryDTO {
     public void setAcademicYear(String academicYear) { this.academicYear = academicYear; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getImportBatchId() { return importBatchId; }
+    public void setImportBatchId(String importBatchId) { this.importBatchId = importBatchId; }
     public int getTotalRows() { return totalRows; }
     public void setTotalRows(int totalRows) { this.totalRows = totalRows; }
     public int getTotalSheets() { return totalSheets; }
