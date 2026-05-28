@@ -67,7 +67,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/auth/**", "/hello/**", "/pilot-onboarding/**", "/error").permitAll()
+                        .requestMatchers("/auth/**", "/hello/**", "/pilot-onboarding/**", "/school-registration/**", "/error").permitAll()
                         .anyRequest().permitAll()
                 )
                 .addFilterBefore(tenantRequestFilter, UsernamePasswordAuthenticationFilter.class)
