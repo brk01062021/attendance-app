@@ -27,6 +27,8 @@ public class SchoolImportUpload {
     private int warningCount;
     private boolean committed;
     private boolean rolledBack;
+    private int stagedRowCount;
+    private String lifecycleMessage;
     private String uploadedByRole;
     private LocalDateTime uploadedAt = LocalDateTime.now();
     private LocalDateTime committedAt;
@@ -35,6 +37,10 @@ public class SchoolImportUpload {
     @Lob
     @Column(columnDefinition = "TEXT")
     private String previewJson;
+
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String workbookDataJson;
 
     public Long getId() { return id; }
     public String getSchoolCode() { return schoolCode; }
@@ -63,6 +69,10 @@ public class SchoolImportUpload {
     public void setCommitted(boolean committed) { this.committed = committed; }
     public boolean isRolledBack() { return rolledBack; }
     public void setRolledBack(boolean rolledBack) { this.rolledBack = rolledBack; }
+    public int getStagedRowCount() { return stagedRowCount; }
+    public void setStagedRowCount(int stagedRowCount) { this.stagedRowCount = stagedRowCount; }
+    public String getLifecycleMessage() { return lifecycleMessage; }
+    public void setLifecycleMessage(String lifecycleMessage) { this.lifecycleMessage = lifecycleMessage; }
     public String getUploadedByRole() { return uploadedByRole; }
     public void setUploadedByRole(String uploadedByRole) { this.uploadedByRole = uploadedByRole; }
     public LocalDateTime getUploadedAt() { return uploadedAt; }
@@ -73,4 +83,6 @@ public class SchoolImportUpload {
     public void setRolledBackAt(LocalDateTime rolledBackAt) { this.rolledBackAt = rolledBackAt; }
     public String getPreviewJson() { return previewJson; }
     public void setPreviewJson(String previewJson) { this.previewJson = previewJson; }
+    public String getWorkbookDataJson() { return workbookDataJson; }
+    public void setWorkbookDataJson(String workbookDataJson) { this.workbookDataJson = workbookDataJson; }
 }

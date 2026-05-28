@@ -10,6 +10,8 @@ public class ImportCommitResponseDTO {
     private String message;
     private boolean committed;
     private boolean rolledBack;
+    private int stagedRowCount;
+    private String lifecycleMessage;
     private LocalDateTime actionAt;
 
     public Long getUploadId() { return uploadId; }
@@ -26,6 +28,10 @@ public class ImportCommitResponseDTO {
     public void setCommitted(boolean committed) { this.committed = committed; }
     public boolean isRolledBack() { return rolledBack; }
     public void setRolledBack(boolean rolledBack) { this.rolledBack = rolledBack; }
+    public int getStagedRowCount() { return stagedRowCount; }
+    public void setStagedRowCount(int stagedRowCount) { this.stagedRowCount = stagedRowCount; }
+    public String getLifecycleMessage() { return lifecycleMessage; }
+    public void setLifecycleMessage(String lifecycleMessage) { this.lifecycleMessage = lifecycleMessage; }
     public LocalDateTime getActionAt() { return actionAt; }
     public void setActionAt(LocalDateTime actionAt) { this.actionAt = actionAt; }
 }

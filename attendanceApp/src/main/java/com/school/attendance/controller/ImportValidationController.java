@@ -70,7 +70,7 @@ public class ImportValidationController {
         data.put("requiredSheets", requiredSheets);
         data.put("requiredColumns", requiredColumns);
         data.put("validationRules", validationRules);
-        data.put("status", List.of("READY_TO_IMPORT", "READY_WITH_WARNINGS", "BLOCKED", "COMMITTED", "ROLLED_BACK"));
+        data.put("status", List.of("UPLOADED", "READY_TO_IMPORT", "READY_WITH_WARNINGS", "BLOCKED", "COMMITTED", "ROLLED_BACK", "FAILED"));
         data.put("generatedAt", Instant.now().toString());
 
         return ApiResponse.success("Import template rules loaded", data);

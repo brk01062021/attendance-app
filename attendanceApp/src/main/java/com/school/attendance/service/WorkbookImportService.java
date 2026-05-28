@@ -3,7 +3,9 @@ package com.school.attendance.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.attendance.dto.imports.*;
+import com.school.attendance.entity.SchoolImportStagingRecord;
 import com.school.attendance.entity.SchoolImportUpload;
+import com.school.attendance.repository.SchoolImportStagingRecordRepository;
 import com.school.attendance.repository.SchoolImportUploadRepository;
 import com.school.attendance.tenant.TenantContext;
 import com.school.attendance.tenant.TenantUtils;
@@ -25,13 +27,16 @@ public class WorkbookImportService {
 
     private final ImportValidationService importValidationService;
     private final SchoolImportUploadRepository uploadRepository;
+    private final SchoolImportStagingRecordRepository stagingRepository;
     private final ObjectMapper objectMapper;
 
     public WorkbookImportService(ImportValidationService importValidationService,
                                  SchoolImportUploadRepository uploadRepository,
+                                 SchoolImportStagingRecordRepository stagingRepository,
                                  ObjectMapper objectMapper) {
         this.importValidationService = importValidationService;
         this.uploadRepository = uploadRepository;
+        this.stagingRepository = stagingRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -80,14 +85,16 @@ public class WorkbookImportService {
             upload.setImportType(safeImportType);
             upload.setFileName(fileName);
             upload.setChecksum(checksum);
-            upload.setStatus(preview.getStatus());
+            upload.setStatus("UPLOADED".equals(preview.getStatus()) ? "UPLOADED" : preview.getStatus());
             upload.setImportBatchId(importBatchId);
             upload.setTotalRows(preview.getRowCounts().values().stream().mapToInt(Integer::intValue).sum());
             upload.setTotalSheets(preview.getRowCounts().size());
             upload.setErrorCount((int) preview.getIssues().stream().filter(issue -> "ERROR".equalsIgnoreCase(issue.getSeverity())).count());
             upload.setWarningCount((int) preview.getIssues().stream().filter(issue -> "WARNING".equalsIgnoreCase(issue.getSeverity())).count());
             upload.setUploadedByRole(safeRole);
+            upload.setLifecycleMessage(preview.isValid() ? "Workbook uploaded, validated, and ready for commit staging." : "Workbook uploaded but commit is blocked until validation errors are resolved.");
             upload.setPreviewJson(writePreview(preview));
+            upload.setWorkbookDataJson(writeWorkbookData(snapshot));
             uploadRepository.save(upload);
 
             ImportUploadResponseDTO response = new ImportUploadResponseDTO();
@@ -131,25 +138,40 @@ public class WorkbookImportService {
         if (upload.isRolledBack()) {
             throw new IllegalStateException("This import was rolled back and cannot be committed.");
         }
-        if (upload.getErrorCount() > 0) {
+        if (upload.isCommitted()) {
+            return action(upload, "Import batch was already committed. No duplicate staging rows were created.");
+        }
+        if (upload.getErrorCount() > 0 || "BLOCKED".equalsIgnoreCase(upload.getStatus())) {
             throw new IllegalStateException("Resolve workbook validation errors before committing import data.");
         }
+
+        WorkbookData workbookData = readWorkbookData(upload);
+        int stagedRows = stageWorkbookRows(upload, workbookData);
         upload.setCommitted(true);
-        upload.setStatus("PENDING_PRINCIPAL_APPROVAL");
+        upload.setRolledBack(false);
+        upload.setStatus("COMMITTED");
         upload.setCommittedAt(LocalDateTime.now());
+        upload.setStagedRowCount(stagedRows);
+        upload.setLifecycleMessage("Import committed into onboarding staging. Principal approval can activate this batch after review.");
         uploadRepository.save(upload);
-        return action(upload, "Import committed into staging and is ready for principal onboarding approval.");
+        return action(upload, "Import committed into onboarding staging and is ready for principal approval.");
     }
 
     @Transactional
     public ImportCommitResponseDTO rollback(Long uploadId, String schoolId) {
         SchoolImportUpload upload = tenantUpload(uploadId, schoolId);
+        if (upload.isRolledBack()) {
+            return action(upload, "Import batch was already rolled back.");
+        }
+        stagingRepository.deleteByUploadId(upload.getId());
         upload.setRolledBack(true);
         upload.setCommitted(false);
         upload.setStatus("ROLLED_BACK");
         upload.setRolledBackAt(LocalDateTime.now());
+        upload.setStagedRowCount(0);
+        upload.setLifecycleMessage("Import staging rows were safely rolled back. Upload history is preserved for audit review.");
         uploadRepository.save(upload);
-        return action(upload, "Import rolled back from active onboarding history.");
+        return action(upload, "Import rolled back safely. Staged onboarding rows were removed.");
     }
 
     private WorkbookSnapshot parseWorkbook(byte[] bytes) throws IOException {
@@ -334,6 +356,8 @@ public class WorkbookImportService {
         dto.setWarningCount(upload.getWarningCount());
         dto.setCommitted(upload.isCommitted());
         dto.setRolledBack(upload.isRolledBack());
+        dto.setStagedRowCount(upload.getStagedRowCount());
+        dto.setLifecycleMessage(upload.getLifecycleMessage());
         dto.setUploadedAt(upload.getUploadedAt());
         return dto;
     }
@@ -346,9 +370,79 @@ public class WorkbookImportService {
         dto.setImportBatchId(upload.getImportBatchId());
         dto.setCommitted(upload.isCommitted());
         dto.setRolledBack(upload.isRolledBack());
+        dto.setStagedRowCount(upload.getStagedRowCount());
+        dto.setLifecycleMessage(upload.getLifecycleMessage());
         dto.setMessage(message);
         dto.setActionAt(LocalDateTime.now());
         return dto;
+    }
+
+
+    private WorkbookData readWorkbookData(SchoolImportUpload upload) {
+        try {
+            if (upload.getWorkbookDataJson() == null || upload.getWorkbookDataJson().isBlank()) {
+                throw new IllegalStateException("Workbook row data is unavailable. Please upload the workbook again.");
+            }
+            return objectMapper.readValue(upload.getWorkbookDataJson(), WorkbookData.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Workbook row data is not readable. Please upload the workbook again.");
+        }
+    }
+
+    private int stageWorkbookRows(SchoolImportUpload upload, WorkbookData workbookData) {
+        if (stagingRepository.countByUploadIdAndStatus(upload.getId(), "STAGED") > 0) {
+            throw new IllegalStateException("This import already has staged rows. Roll back before committing again.");
+        }
+        List<SchoolImportStagingRecord> stagingRows = new ArrayList<>();
+        for (WorkbookRowData row : workbookData.rows()) {
+            SchoolImportStagingRecord record = new SchoolImportStagingRecord();
+            record.setUploadId(upload.getId());
+            record.setSchoolCode(upload.getSchoolCode());
+            record.setAcademicYear(upload.getAcademicYear());
+            record.setImportBatchId(upload.getImportBatchId());
+            record.setSheetName(row.sheetName());
+            record.setWorkbookRowNumber(row.rowNumber());
+            record.setRecordKey(buildRecordKey(row));
+            record.setStatus("STAGED");
+            try {
+                record.setRowJson(objectMapper.writeValueAsString(row.values()));
+            } catch (JsonProcessingException e) {
+                throw new IllegalStateException("Unable to stage workbook row data safely.");
+            }
+            stagingRows.add(record);
+        }
+        stagingRepository.saveAll(stagingRows);
+        return stagingRows.size();
+    }
+
+    private String buildRecordKey(WorkbookRowData row) {
+        Map<String, String> values = row.values();
+        String key = firstNonBlank(values.get("admission_no"), values.get("teacher_id"), values.get("subject_name"));
+        if (!key.isBlank()) {
+            return row.sheetName() + ":" + key.toUpperCase(Locale.ROOT);
+        }
+        return row.sheetName() + ":ROW:" + row.rowNumber();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return "";
+    }
+
+    private String writeWorkbookData(WorkbookSnapshot snapshot) {
+        try {
+            List<WorkbookRowData> rows = new ArrayList<>();
+            snapshot.rowsBySheet().forEach((sheetName, sheetRows) -> {
+                for (RowSnapshot row : sheetRows) {
+                    rows.add(new WorkbookRowData(sheetName, row.rowNumber(), row.values()));
+                }
+            });
+            return objectMapper.writeValueAsString(new WorkbookData(rows));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Unable to store workbook row data for transactional commit.");
+        }
     }
 
     private String buildImportBatchId(String schoolId, String checksum) {
@@ -425,5 +519,44 @@ public class WorkbookImportService {
         String value(String key) {
             return values.getOrDefault(key, "").trim();
         }
+    }
+
+    private static class WorkbookData {
+        private List<WorkbookRowData> rows = new ArrayList<>();
+
+        public WorkbookData() { }
+
+        public WorkbookData(List<WorkbookRowData> rows) {
+            this.rows = rows == null ? new ArrayList<>() : rows;
+        }
+
+        public List<WorkbookRowData> getRows() { return rows; }
+        public void setRows(List<WorkbookRowData> rows) { this.rows = rows == null ? new ArrayList<>() : rows; }
+        public List<WorkbookRowData> rows() { return rows == null ? List.of() : rows; }
+    }
+
+    private static class WorkbookRowData {
+        private String sheetName;
+        private int rowNumber;
+        private Map<String, String> values = new LinkedHashMap<>();
+
+        public WorkbookRowData() { }
+
+        public WorkbookRowData(String sheetName, int rowNumber, Map<String, String> values) {
+            this.sheetName = sheetName;
+            this.rowNumber = rowNumber;
+            this.values = values == null ? new LinkedHashMap<>() : values;
+        }
+
+        public String getSheetName() { return sheetName; }
+        public void setSheetName(String sheetName) { this.sheetName = sheetName; }
+        public int getRowNumber() { return rowNumber; }
+        public void setRowNumber(int rowNumber) { this.rowNumber = rowNumber; }
+        public Map<String, String> getValues() { return values; }
+        public void setValues(Map<String, String> values) { this.values = values == null ? new LinkedHashMap<>() : values; }
+
+        public String sheetName() { return sheetName; }
+        public int rowNumber() { return rowNumber; }
+        public Map<String, String> values() { return values == null ? Map.of() : values; }
     }
 }
