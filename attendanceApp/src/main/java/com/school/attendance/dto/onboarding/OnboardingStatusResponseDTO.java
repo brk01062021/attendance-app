@@ -10,6 +10,18 @@ public class OnboardingStatusResponseDTO {
     private String nextStep;
     private boolean loginEnabled;
     private boolean importEnabled;
+    private String registrationDate;
+    private String submittedAt;
+    private String approvedAt;
+    private String pilotActivatedAt;
+    private String activatedAt;
+    private String submittedBy;
+    private String approvedBy;
+    private String pilotEnabledBy;
+    private String activatedBy;
+    private String credentialsIssuedBy;
+    private String credentialsIssuedAt;
+    private String statusHistory;
 
     public OnboardingStatusResponseDTO() {}
 
@@ -43,4 +55,28 @@ public class OnboardingStatusResponseDTO {
     public void setLoginEnabled(boolean loginEnabled) { this.loginEnabled = loginEnabled; }
     public boolean isImportEnabled() { return importEnabled; }
     public void setImportEnabled(boolean importEnabled) { this.importEnabled = importEnabled; }
+    public String getRegistrationDate() { return registrationDate; }
+    public void setRegistrationDate(String registrationDate) { this.registrationDate = registrationDate; }
+    public String getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(String submittedAt) { this.submittedAt = submittedAt; }
+    public String getApprovedAt() { return approvedAt; }
+    public void setApprovedAt(String approvedAt) { this.approvedAt = approvedAt; }
+    public String getPilotActivatedAt() { return pilotActivatedAt; }
+    public void setPilotActivatedAt(String pilotActivatedAt) { this.pilotActivatedAt = pilotActivatedAt; }
+    public String getActivatedAt() { return activatedAt; }
+    public void setActivatedAt(String activatedAt) { this.activatedAt = activatedAt; }
+    public String getSubmittedBy() { return submittedBy; }
+    public void setSubmittedBy(String submittedBy) { this.submittedBy = submittedBy; }
+    public String getApprovedBy() { return approvedBy; }
+    public void setApprovedBy(String approvedBy) { this.approvedBy = approvedBy; }
+    public String getPilotEnabledBy() { return pilotEnabledBy; }
+    public void setPilotEnabledBy(String pilotEnabledBy) { this.pilotEnabledBy = pilotEnabledBy; }
+    public String getActivatedBy() { return activatedBy; }
+    public void setActivatedBy(String activatedBy) { this.activatedBy = activatedBy; }
+    public String getCredentialsIssuedBy() { return credentialsIssuedBy; }
+    public void setCredentialsIssuedBy(String credentialsIssuedBy) { this.credentialsIssuedBy = credentialsIssuedBy; }
+    public String getCredentialsIssuedAt() { return credentialsIssuedAt; }
+    public void setCredentialsIssuedAt(String credentialsIssuedAt) { this.credentialsIssuedAt = credentialsIssuedAt; }
+    public String getStatusHistory() { return statusHistory; }
+    public void setStatusHistory(String statusHistory) { this.statusHistory = statusHistory; }
 }

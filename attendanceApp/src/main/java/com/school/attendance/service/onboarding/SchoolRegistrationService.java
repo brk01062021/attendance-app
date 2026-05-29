@@ -1,5 +1,7 @@
 package com.school.attendance.service.onboarding;
 
+import com.school.attendance.dto.onboarding.ActivationCredentialDTO;
+import com.school.attendance.dto.onboarding.ActivationPackageDTO;
 import com.school.attendance.dto.onboarding.OnboardingReviewItemDTO;
 import com.school.attendance.dto.onboarding.OnboardingStatusResponseDTO;
 import com.school.attendance.dto.onboarding.OnboardingStatusUpdateRequestDTO;
@@ -7,8 +9,11 @@ import com.school.attendance.dto.onboarding.PilotDemoRequestDTO;
 import com.school.attendance.dto.onboarding.SchoolIdAvailabilityResponseDTO;
 import com.school.attendance.dto.onboarding.SchoolRegistrationRequestDTO;
 import com.school.attendance.dto.onboarding.SchoolRegistrationResponseDTO;
+import com.school.attendance.entity.AppUser;
 import com.school.attendance.entity.SchoolOnboardingRequest;
+import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.repository.SchoolOnboardingRequestRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,16 +22,24 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.security.SecureRandom;
 
 @Service
 public class SchoolRegistrationService {
     private static final String SCHOOL_ID_PATTERN = "^[A-Z0-9]{4}$";
     private static final List<String> BLOCKING_SCHOOL_ID_STATUSES = List.of("RESERVED", "PENDING", "APPROVED", "PILOT", "ACTIVE");
     private static final List<String> REVIEW_QUEUE_STATUSES = List.of("PENDING", "APPROVED", "PILOT", "ACTIVE", "RESERVED", "REJECTED");
+    private static final String VIDYASETU_ONBOARDING_TEAM = "VidyaSetu Onboarding Team";
+    private static final String SCHOOL_REGISTRATION_PORTAL = "School Registration Portal";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private final SchoolOnboardingRequestRepository onboardingRepository;
+    private final AppUserRepository appUserRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public SchoolRegistrationService(SchoolOnboardingRequestRepository onboardingRepository) {
+    public SchoolRegistrationService(SchoolOnboardingRequestRepository onboardingRepository, AppUserRepository appUserRepository, PasswordEncoder passwordEncoder) {
         this.onboardingRepository = onboardingRepository;
+        this.appUserRepository = appUserRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public SchoolIdAvailabilityResponseDTO checkSchoolId(String rawSchoolId) {
@@ -94,11 +107,12 @@ public class SchoolRegistrationService {
         onboarding.setExpectedTeachers(request.getExpectedTeachers());
         onboarding.setNotes(safeText(request.getNotes()));
         onboarding.setSubmittedAt(now);
+        onboarding.setSubmittedBy(SCHOOL_REGISTRATION_PORTAL);
         onboarding.setUpdatedAt(now);
-        appendAudit(onboarding, "SCHOOL", fromStatus, "PENDING", "registration submitted for Admin/Principal review", now);
+        appendAudit(onboarding, SCHOOL_REGISTRATION_PORTAL, fromStatus, "PENDING", "Registration submitted for VidyaSetu onboarding team review", now);
         onboardingRepository.save(onboarding);
 
-        return toRegistrationResponse(onboarding, "Registration submitted and moved to Pending review.", "Admin/Principal review can approve the tenant, mark pilot, or activate after validation. Final Excel import remains disabled.");
+        return toRegistrationResponse(onboarding, "Registration submitted successfully and moved to Pending review.", "VidyaSetu onboarding team will review the request and move it through Approved, Pilot, and Active stages. Final Excel import remains disabled.");
     }
 
     @Transactional
@@ -119,11 +133,12 @@ public class SchoolRegistrationService {
         onboarding.setExpectedTeachers(null);
         onboarding.setNotes(safeText(request.getNotes()));
         onboarding.setSubmittedAt(now);
+        onboarding.setSubmittedBy(SCHOOL_REGISTRATION_PORTAL);
         onboarding.setUpdatedAt(now);
-        appendAudit(onboarding, "SCHOOL", "NEW", "PENDING", "pilot demo request submitted", now);
+        appendAudit(onboarding, SCHOOL_REGISTRATION_PORTAL, "NEW", "PENDING", "Pilot demo request submitted for VidyaSetu onboarding team review", now);
         onboardingRepository.save(onboarding);
 
-        return toRegistrationResponse(onboarding, "Pilot demo request moved to Pending review.", "Schedule demo, confirm school size, then guide the school through registration and sample-data onboarding.");
+        return toRegistrationResponse(onboarding, "Pilot demo request submitted successfully and moved to Pending review.", "VidyaSetu onboarding team will schedule validation and guide the school through onboarding stages.");
     }
 
     public OnboardingStatusResponseDTO getStatus(String referenceId) {
@@ -188,13 +203,110 @@ public class SchoolRegistrationService {
         onboarding.setStatus(nextStatus);
         onboarding.setReviewNotes(safeText(request == null ? null : request.getReviewNotes()));
         onboarding.setUpdatedAt(now);
-        if ("APPROVED".equals(nextStatus)) onboarding.setApprovedAt(now);
-        if ("PILOT".equals(nextStatus)) onboarding.setPilotActivatedAt(now);
-        if ("ACTIVE".equals(nextStatus)) onboarding.setActivatedAt(now);
+        if ("APPROVED".equals(nextStatus)) { onboarding.setApprovedAt(now); onboarding.setApprovedBy(VIDYASETU_ONBOARDING_TEAM); }
+        if ("PILOT".equals(nextStatus)) { onboarding.setPilotActivatedAt(now); onboarding.setPilotEnabledBy(VIDYASETU_ONBOARDING_TEAM); }
+        if ("ACTIVE".equals(nextStatus)) { onboarding.setActivatedAt(now); onboarding.setActivatedBy(VIDYASETU_ONBOARDING_TEAM); }
         if ("REJECTED".equals(nextStatus)) onboarding.setRejectedAt(now);
-        appendAudit(onboarding, "ADMIN_PRINCIPAL", fromStatus, nextStatus, onboarding.getReviewNotes(), now);
+        appendAudit(onboarding, VIDYASETU_ONBOARDING_TEAM, fromStatus, nextStatus, onboarding.getReviewNotes(), now);
         onboardingRepository.save(onboarding);
         return toStatusResponse(onboarding);
+    }
+
+
+    @Transactional
+    public ActivationPackageDTO generateActivationPackage(String referenceId) {
+        SchoolOnboardingRequest onboarding = onboardingRepository.findByReferenceId(referenceId)
+                .orElseThrow(() -> new IllegalArgumentException("Onboarding reference not found."));
+        if (!"ACTIVE".equals(onboarding.getStatus())) {
+            throw new IllegalArgumentException("Activation package can be generated only after tenant status is ACTIVE.");
+        }
+        if (onboarding.getSchoolId() == null || onboarding.getSchoolId().isBlank()) {
+            throw new IllegalArgumentException("school_id is required before credential provisioning.");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String schoolId = normalizeSchoolId(onboarding.getSchoolId());
+        String adminUsername = schoolId.toLowerCase(Locale.ROOT) + ".admin";
+        String principalUsername = schoolId.toLowerCase(Locale.ROOT) + ".principal";
+
+        String adminPassword = onboarding.getAdminInitialPassword();
+        if (adminPassword == null || adminPassword.isBlank()) adminPassword = generateInitialPassword(schoolId, "ADM");
+        String principalPassword = onboarding.getPrincipalInitialPassword();
+        if (principalPassword == null || principalPassword.isBlank()) principalPassword = generateInitialPassword(schoolId, "PRI");
+
+        boolean adminCreated = provisionUser(adminUsername, adminPassword, "ADMIN", "School Admin", onboarding);
+        boolean principalCreated = provisionUser(principalUsername, principalPassword, "PRINCIPAL", "Principal", onboarding);
+
+        onboarding.setAdminUsername(adminUsername);
+        onboarding.setAdminInitialPassword(adminPassword);
+        onboarding.setPrincipalUsername(principalUsername);
+        onboarding.setPrincipalInitialPassword(principalPassword);
+        onboarding.setCredentialsIssuedBy(VIDYASETU_ONBOARDING_TEAM);
+        if (onboarding.getCredentialsIssuedAt() == null) onboarding.setCredentialsIssuedAt(now);
+        onboarding.setUpdatedAt(now);
+        appendAudit(onboarding, VIDYASETU_ONBOARDING_TEAM, "ACTIVE", "CREDENTIALS_ISSUED", "First Admin and Principal credentials generated", now);
+        onboardingRepository.save(onboarding);
+
+        ActivationPackageDTO dto = new ActivationPackageDTO();
+        dto.setReferenceId(onboarding.getReferenceId());
+        dto.setSchoolId(schoolId);
+        dto.setSchoolName(onboarding.getSchoolName());
+        dto.setStatus(onboarding.getStatus());
+        dto.setRegistrationDate(toIso(onboarding.getSubmittedAt()));
+        dto.setActivatedAt(toIso(onboarding.getActivatedAt()));
+        dto.setCredentialsIssuedAt(toIso(onboarding.getCredentialsIssuedAt()));
+        dto.setLoginEnabled(true);
+        dto.setMessage("Activation package is ready. First Admin and Principal accounts are provisioned for ERP login.");
+        dto.setNextStep("Share these credentials securely with the approved school authority, then ask Admin and Principal to login using school_id " + schoolId + ".");
+        dto.setCredentials(List.of(
+                new ActivationCredentialDTO("ADMIN", adminUsername, adminPassword, "School Admin", adminCreated),
+                new ActivationCredentialDTO("PRINCIPAL", principalUsername, principalPassword, "Principal", principalCreated)
+        ));
+        dto.setStatusSummary(toStatusResponse(onboarding));
+        return dto;
+    }
+
+    public ActivationPackageDTO getActivationPackage(String referenceId) {
+        SchoolOnboardingRequest onboarding = onboardingRepository.findByReferenceId(referenceId)
+                .orElseThrow(() -> new IllegalArgumentException("Onboarding reference not found."));
+        if (!"ACTIVE".equals(onboarding.getStatus())) {
+            throw new IllegalArgumentException("Activation package is available only after tenant status is ACTIVE.");
+        }
+        if (onboarding.getAdminUsername() == null || onboarding.getPrincipalUsername() == null) {
+            return generateActivationPackage(referenceId);
+        }
+        ActivationPackageDTO dto = new ActivationPackageDTO();
+        dto.setReferenceId(onboarding.getReferenceId());
+        dto.setSchoolId(onboarding.getSchoolId());
+        dto.setSchoolName(onboarding.getSchoolName());
+        dto.setStatus(onboarding.getStatus());
+        dto.setRegistrationDate(toIso(onboarding.getSubmittedAt()));
+        dto.setActivatedAt(toIso(onboarding.getActivatedAt()));
+        dto.setCredentialsIssuedAt(toIso(onboarding.getCredentialsIssuedAt()));
+        dto.setLoginEnabled(true);
+        dto.setMessage("Activation package is ready. Login is enabled for this tenant.");
+        dto.setNextStep("Share credentials securely and complete first login validation.");
+        dto.setCredentials(List.of(
+                new ActivationCredentialDTO("ADMIN", onboarding.getAdminUsername(), onboarding.getAdminInitialPassword(), "School Admin", false),
+                new ActivationCredentialDTO("PRINCIPAL", onboarding.getPrincipalUsername(), onboarding.getPrincipalInitialPassword(), "Principal", false)
+        ));
+        dto.setStatusSummary(toStatusResponse(onboarding));
+        return dto;
+    }
+
+    private boolean provisionUser(String username, String rawPassword, String role, String displayName, SchoolOnboardingRequest onboarding) {
+        String schoolId = normalizeSchoolId(onboarding.getSchoolId());
+        if (appUserRepository.findByUsernameAndSchoolCodeIgnoreCase(username, schoolId).isPresent()) return false;
+        AppUser user = new AppUser();
+        user.setUsername(username);
+        user.setPassword(passwordEncoder.encode(rawPassword));
+        user.setRole(role);
+        user.setSchoolId(1L);
+        user.setSchoolCode(schoolId);
+        user.setDisplayName(displayName);
+        user.setSchoolName(onboarding.getSchoolName());
+        appUserRepository.save(user);
+        return true;
     }
 
     private void validateTransition(String fromStatus, String nextStatus) {
@@ -217,8 +329,21 @@ public class SchoolRegistrationService {
     private OnboardingStatusResponseDTO toStatusResponse(SchoolOnboardingRequest request) {
         String status = request.getStatus();
         boolean loginEnabled = "ACTIVE".equals(status);
-        return new OnboardingStatusResponseDTO(request.getReferenceId(), request.getSchoolId(), request.getSchoolName(), request.getRequestType(), status,
+        OnboardingStatusResponseDTO dto = new OnboardingStatusResponseDTO(request.getReferenceId(), request.getSchoolId(), request.getSchoolName(), request.getRequestType(), status,
                 statusMessage(status), nextStep(status), loginEnabled, false);
+        dto.setRegistrationDate(toIso(request.getSubmittedAt()));
+        dto.setSubmittedAt(toIso(request.getSubmittedAt()));
+        dto.setApprovedAt(toIso(request.getApprovedAt()));
+        dto.setPilotActivatedAt(toIso(request.getPilotActivatedAt()));
+        dto.setActivatedAt(toIso(request.getActivatedAt()));
+        dto.setSubmittedBy(submittedActor(request.getSubmittedBy()));
+        dto.setApprovedBy(request.getApprovedBy());
+        dto.setPilotEnabledBy(request.getPilotEnabledBy());
+        dto.setActivatedBy(request.getActivatedBy());
+        dto.setCredentialsIssuedBy(request.getCredentialsIssuedBy());
+        dto.setCredentialsIssuedAt(toIso(request.getCredentialsIssuedAt()));
+        dto.setStatusHistory(normalizeAuditHistory(request.getStatusHistory()));
+        return dto;
     }
 
     private OnboardingReviewItemDTO toReviewItem(SchoolOnboardingRequest request) {
@@ -229,7 +354,7 @@ public class SchoolRegistrationService {
         dto.setExpectedTeachers(request.getExpectedTeachers()); dto.setCity(request.getCity()); dto.setState(request.getState());
         dto.setSubmittedAt(toIso(request.getSubmittedAt())); dto.setUpdatedAt(toIso(request.getUpdatedAt())); dto.setApprovedAt(toIso(request.getApprovedAt()));
         dto.setPilotActivatedAt(toIso(request.getPilotActivatedAt())); dto.setActivatedAt(toIso(request.getActivatedAt())); dto.setRejectedAt(toIso(request.getRejectedAt()));
-        dto.setReviewNotes(request.getReviewNotes()); dto.setStatusHistory(request.getStatusHistory());
+        dto.setReviewNotes(request.getReviewNotes()); dto.setSubmittedBy(submittedActor(request.getSubmittedBy())); dto.setApprovedBy(request.getApprovedBy()); dto.setPilotEnabledBy(request.getPilotEnabledBy()); dto.setActivatedBy(request.getActivatedBy()); dto.setCredentialsIssuedBy(request.getCredentialsIssuedBy()); dto.setCredentialsIssuedAt(toIso(request.getCredentialsIssuedAt())); dto.setStatusHistory(normalizeAuditHistory(request.getStatusHistory()));
         return dto;
     }
 
@@ -245,11 +370,31 @@ public class SchoolRegistrationService {
         request.setStatusHistory(history.length() > 3900 ? history.substring(history.length() - 3900) : history);
     }
 
+
+    private String normalizeAuditHistory(String history) {
+        if (history == null || history.isBlank()) {
+            return history;
+        }
+        return history
+                .replace("registration submitted for Admin/Principal review", "Registration submitted for VidyaSetu onboarding team review")
+                .replace("registration submitted for admin/principal review", "Registration submitted for VidyaSetu onboarding team review")
+                .replace("Admin/Principal review", "VidyaSetu onboarding team review")
+                .replace("admin/principal review", "VidyaSetu onboarding team review");
+    }
+
     private boolean isSystemReservedSchoolId(String schoolId) { return List.of("BRK1", "DEMO", "TEST").contains(schoolId); }
     private String normalizeSchoolId(String value) { return (value == null ? "" : value.trim()).toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", ""); }
     private String normalizeStatus(String value) { return safeText(value).toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_'); }
     private String safeText(String value) { return value == null ? "" : value.trim(); }
     private String toIso(LocalDateTime value) { return value == null ? null : value.toString(); }
+    private String defaultActor(String actor) { return actor == null || actor.isBlank() ? VIDYASETU_ONBOARDING_TEAM : actor; }
+    private String submittedActor(String actor) { return actor == null || actor.isBlank() || VIDYASETU_ONBOARDING_TEAM.equals(actor) ? SCHOOL_REGISTRATION_PORTAL : actor; }
+    private String generateInitialPassword(String schoolId, String prefix) {
+        String alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        StringBuilder sb = new StringBuilder(prefix).append("-").append(schoolId).append("-");
+        for (int i = 0; i < 5; i++) sb.append(alphabet.charAt(SECURE_RANDOM.nextInt(alphabet.length())));
+        return sb.toString();
+    }
     private String buildReferenceId(String prefix) {
         String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
         String suffix = UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.ROOT);
@@ -258,10 +403,10 @@ public class SchoolRegistrationService {
     private String statusMessage(String status) {
         return switch (status) {
             case "RESERVED" -> "school_id is reserved but registration details are not completed yet.";
-            case "PENDING" -> "Onboarding request is pending review.";
-            case "APPROVED" -> "Onboarding request is approved. Tenant setup can proceed.";
-            case "PILOT" -> "Pilot tenant is enabled for controlled validation. Login remains locked until Active.";
-            case "ACTIVE" -> "Tenant is active for normal login and school operations.";
+            case "PENDING" -> "Your registration request is under review by the VidyaSetu onboarding team.";
+            case "APPROVED" -> "Your school registration is approved. VidyaSetu is preparing the ERP workspace.";
+            case "PILOT" -> "Pilot workspace validation is enabled. Login credentials will be issued after activation.";
+            case "ACTIVE" -> "Your school workspace is active. ERP login is enabled after credentials are issued.";
             case "REJECTED" -> "Onboarding request was rejected or cancelled.";
             default -> "Onboarding status is available.";
         };
@@ -269,10 +414,10 @@ public class SchoolRegistrationService {
     private String nextStep(String status) {
         return switch (status) {
             case "RESERVED" -> "Complete school registration using the reserved school_id.";
-            case "PENDING" -> "Admin/Principal must review and approve or reject this request.";
-            case "APPROVED" -> "Move tenant to Pilot after setup validation. Final Excel import remains disabled.";
-            case "PILOT" -> "Validate pilot setup, then activate tenant to enable login.";
-            case "ACTIVE" -> "Use normal VidyaSetu login and school operations.";
+            case "PENDING" -> "VidyaSetu onboarding team will review your registration and move it through the onboarding stages.";
+            case "APPROVED" -> "VidyaSetu onboarding team will complete workspace setup and enable pilot validation.";
+            case "PILOT" -> "VidyaSetu onboarding team will validate the pilot workspace and activate login when ready.";
+            case "ACTIVE" -> "Generate or view the activation package, issue Admin/Principal credentials, and complete first login validation.";
             case "REJECTED" -> "Contact school again or submit a new onboarding request.";
             default -> "Continue onboarding review.";
         };

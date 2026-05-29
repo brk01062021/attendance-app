@@ -1,5 +1,6 @@
 package com.school.attendance.controller;
 
+import com.school.attendance.dto.onboarding.ActivationPackageDTO;
 import com.school.attendance.dto.onboarding.OnboardingReviewItemDTO;
 import com.school.attendance.dto.onboarding.OnboardingStatusResponseDTO;
 import com.school.attendance.dto.onboarding.OnboardingStatusUpdateRequestDTO;
@@ -76,6 +77,16 @@ public class SchoolRegistrationController {
     @GetMapping("/review-queue")
     public ResponseEntity<List<OnboardingReviewItemDTO>> getReviewQueue() {
         return ResponseEntity.ok(schoolRegistrationService.getReviewQueue());
+    }
+
+    @GetMapping("/activation-package/{referenceId}")
+    public ResponseEntity<ActivationPackageDTO> getActivationPackage(@PathVariable String referenceId) {
+        return ResponseEntity.ok(schoolRegistrationService.getActivationPackage(referenceId));
+    }
+
+    @PostMapping("/activation-package/{referenceId}/generate")
+    public ResponseEntity<ActivationPackageDTO> generateActivationPackage(@PathVariable String referenceId) {
+        return ResponseEntity.ok(schoolRegistrationService.generateActivationPackage(referenceId));
     }
 
     @PostMapping("/review/{referenceId}/approve")

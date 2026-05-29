@@ -47,6 +47,17 @@ public class SchoolOnboardingRequest {
     @Column(length = 4000)
     private String statusHistory;
 
+    private String submittedBy;
+    private String approvedBy;
+    private String pilotEnabledBy;
+    private String activatedBy;
+    private String credentialsIssuedBy;
+    private String adminUsername;
+    private String adminInitialPassword;
+    private String principalUsername;
+    private String principalInitialPassword;
+    private LocalDateTime credentialsIssuedAt;
+
     private LocalDateTime reservedAt;
     private LocalDateTime submittedAt;
     private LocalDateTime approvedAt;
@@ -88,6 +99,27 @@ public class SchoolOnboardingRequest {
     public void setReviewNotes(String reviewNotes) { this.reviewNotes = reviewNotes; }
     public String getStatusHistory() { return statusHistory; }
     public void setStatusHistory(String statusHistory) { this.statusHistory = statusHistory; }
+    public String getSubmittedBy() { return submittedBy; }
+    public void setSubmittedBy(String submittedBy) { this.submittedBy = submittedBy; }
+    public String getApprovedBy() { return approvedBy; }
+    public void setApprovedBy(String approvedBy) { this.approvedBy = approvedBy; }
+    public String getPilotEnabledBy() { return pilotEnabledBy; }
+    public void setPilotEnabledBy(String pilotEnabledBy) { this.pilotEnabledBy = pilotEnabledBy; }
+    public String getActivatedBy() { return activatedBy; }
+    public void setActivatedBy(String activatedBy) { this.activatedBy = activatedBy; }
+    public String getCredentialsIssuedBy() { return credentialsIssuedBy; }
+    public void setCredentialsIssuedBy(String credentialsIssuedBy) { this.credentialsIssuedBy = credentialsIssuedBy; }
+    public String getAdminUsername() { return adminUsername; }
+    public void setAdminUsername(String adminUsername) { this.adminUsername = adminUsername; }
+    public String getAdminInitialPassword() { return adminInitialPassword; }
+    public void setAdminInitialPassword(String adminInitialPassword) { this.adminInitialPassword = adminInitialPassword; }
+    public String getPrincipalUsername() { return principalUsername; }
+    public void setPrincipalUsername(String principalUsername) { this.principalUsername = principalUsername; }
+    public String getPrincipalInitialPassword() { return principalInitialPassword; }
+    public void setPrincipalInitialPassword(String principalInitialPassword) { this.principalInitialPassword = principalInitialPassword; }
+    public LocalDateTime getCredentialsIssuedAt() { return credentialsIssuedAt; }
+    public void setCredentialsIssuedAt(LocalDateTime credentialsIssuedAt) { this.credentialsIssuedAt = credentialsIssuedAt; }
+
     public LocalDateTime getReservedAt() { return reservedAt; }
     public void setReservedAt(LocalDateTime reservedAt) { this.reservedAt = reservedAt; }
     public LocalDateTime getSubmittedAt() { return submittedAt; }

@@ -20,6 +20,12 @@ public class OnboardingReviewItemDTO {
     private String activatedAt;
     private String rejectedAt;
     private String reviewNotes;
+    private String submittedBy;
+    private String approvedBy;
+    private String pilotEnabledBy;
+    private String activatedBy;
+    private String credentialsIssuedBy;
+    private String credentialsIssuedAt;
     private String statusHistory;
 
     public String getReferenceId() { return referenceId; }
@@ -60,6 +66,18 @@ public class OnboardingReviewItemDTO {
     public void setRejectedAt(String rejectedAt) { this.rejectedAt = rejectedAt; }
     public String getReviewNotes() { return reviewNotes; }
     public void setReviewNotes(String reviewNotes) { this.reviewNotes = reviewNotes; }
+    public String getSubmittedBy() { return submittedBy; }
+    public void setSubmittedBy(String submittedBy) { this.submittedBy = submittedBy; }
+    public String getApprovedBy() { return approvedBy; }
+    public void setApprovedBy(String approvedBy) { this.approvedBy = approvedBy; }
+    public String getPilotEnabledBy() { return pilotEnabledBy; }
+    public void setPilotEnabledBy(String pilotEnabledBy) { this.pilotEnabledBy = pilotEnabledBy; }
+    public String getActivatedBy() { return activatedBy; }
+    public void setActivatedBy(String activatedBy) { this.activatedBy = activatedBy; }
+    public String getCredentialsIssuedBy() { return credentialsIssuedBy; }
+    public void setCredentialsIssuedBy(String credentialsIssuedBy) { this.credentialsIssuedBy = credentialsIssuedBy; }
+    public String getCredentialsIssuedAt() { return credentialsIssuedAt; }
+    public void setCredentialsIssuedAt(String credentialsIssuedAt) { this.credentialsIssuedAt = credentialsIssuedAt; }
     public String getStatusHistory() { return statusHistory; }
     public void setStatusHistory(String statusHistory) { this.statusHistory = statusHistory; }
 }
