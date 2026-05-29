@@ -109,10 +109,10 @@ public class SchoolRegistrationService {
         onboarding.setSubmittedAt(now);
         onboarding.setSubmittedBy(SCHOOL_REGISTRATION_PORTAL);
         onboarding.setUpdatedAt(now);
-        appendAudit(onboarding, SCHOOL_REGISTRATION_PORTAL, fromStatus, "PENDING", "Registration submitted for VidyaSetu onboarding team review", now);
+        appendAudit(onboarding, SCHOOL_REGISTRATION_PORTAL, fromStatus, "PENDING", "Registration submitted for VidyaSetu Onboarding Team review", now);
         onboardingRepository.save(onboarding);
 
-        return toRegistrationResponse(onboarding, "Registration submitted successfully and moved to Pending review.", "VidyaSetu onboarding team will review the request and move it through Approved, Pilot, and Active stages. Final Excel import remains disabled.");
+        return toRegistrationResponse(onboarding, "Registration Submitted successfully.", "VidyaSetu Onboarding Team will review the request and move it through Approved, Pilot, Active, and Credentials Issued stages. Final Excel import remains disabled.");
     }
 
     @Transactional
@@ -135,10 +135,10 @@ public class SchoolRegistrationService {
         onboarding.setSubmittedAt(now);
         onboarding.setSubmittedBy(SCHOOL_REGISTRATION_PORTAL);
         onboarding.setUpdatedAt(now);
-        appendAudit(onboarding, SCHOOL_REGISTRATION_PORTAL, "NEW", "PENDING", "Pilot demo request submitted for VidyaSetu onboarding team review", now);
+        appendAudit(onboarding, SCHOOL_REGISTRATION_PORTAL, "NEW", "PENDING", "Pilot demo request submitted for VidyaSetu Onboarding Team review", now);
         onboardingRepository.save(onboarding);
 
-        return toRegistrationResponse(onboarding, "Pilot demo request submitted successfully and moved to Pending review.", "VidyaSetu onboarding team will schedule validation and guide the school through onboarding stages.");
+        return toRegistrationResponse(onboarding, "Registration Submitted successfully for pilot demo request.", "VidyaSetu Onboarding Team will schedule validation and guide the school through Approved, Pilot, Active, and Credentials Issued stages.");
     }
 
     public OnboardingStatusResponseDTO getStatus(String referenceId) {
@@ -151,7 +151,7 @@ public class SchoolRegistrationService {
         String schoolId = normalizeSchoolId(rawSchoolId);
         if ("BRK1".equals(schoolId)) {
             return new OnboardingStatusResponseDTO("DEMO-BRK1", "BRK1", "BRK International School", "DEMO_TENANT", "ACTIVE",
-                    "Demo tenant is active for VidyaSetu validation.",
+                    "Demo school workspace is active for VidyaSetu validation.",
                     "Continue testing login, dashboards, and onboarding lifecycle. Final Excel import remains disabled for now.", true, false);
         }
         return onboardingRepository.findTopBySchoolIdOrderByUpdatedAtDesc(schoolId)
@@ -218,7 +218,7 @@ public class SchoolRegistrationService {
         SchoolOnboardingRequest onboarding = onboardingRepository.findByReferenceId(referenceId)
                 .orElseThrow(() -> new IllegalArgumentException("Onboarding reference not found."));
         if (!"ACTIVE".equals(onboarding.getStatus())) {
-            throw new IllegalArgumentException("Activation package can be generated only after tenant status is ACTIVE.");
+            throw new IllegalArgumentException("Activation package can be generated only after school workspace status is ACTIVE.");
         }
         if (onboarding.getSchoolId() == null || onboarding.getSchoolId().isBlank()) {
             throw new IllegalArgumentException("school_id is required before credential provisioning.");
@@ -270,7 +270,7 @@ public class SchoolRegistrationService {
         SchoolOnboardingRequest onboarding = onboardingRepository.findByReferenceId(referenceId)
                 .orElseThrow(() -> new IllegalArgumentException("Onboarding reference not found."));
         if (!"ACTIVE".equals(onboarding.getStatus())) {
-            throw new IllegalArgumentException("Activation package is available only after tenant status is ACTIVE.");
+            throw new IllegalArgumentException("Activation package is available only after school workspace status is ACTIVE.");
         }
         if (onboarding.getAdminUsername() == null || onboarding.getPrincipalUsername() == null) {
             return generateActivationPackage(referenceId);
@@ -284,7 +284,7 @@ public class SchoolRegistrationService {
         dto.setActivatedAt(toIso(onboarding.getActivatedAt()));
         dto.setCredentialsIssuedAt(toIso(onboarding.getCredentialsIssuedAt()));
         dto.setLoginEnabled(true);
-        dto.setMessage("Activation package is ready. Login is enabled for this tenant.");
+        dto.setMessage("Activation package is ready. Login is enabled for this school workspace.");
         dto.setNextStep("Share credentials securely and complete first login validation.");
         dto.setCredentials(List.of(
                 new ActivationCredentialDTO("ADMIN", onboarding.getAdminUsername(), onboarding.getAdminInitialPassword(), "School Admin", false),
@@ -376,10 +376,10 @@ public class SchoolRegistrationService {
             return history;
         }
         return history
-                .replace("registration submitted for Admin/Principal review", "Registration submitted for VidyaSetu onboarding team review")
-                .replace("registration submitted for admin/principal review", "Registration submitted for VidyaSetu onboarding team review")
-                .replace("Admin/Principal review", "VidyaSetu onboarding team review")
-                .replace("admin/principal review", "VidyaSetu onboarding team review");
+                .replace("registration submitted for Admin/Principal review", "Registration submitted for VidyaSetu Onboarding Team review")
+                .replace("registration submitted for admin/principal review", "Registration submitted for VidyaSetu Onboarding Team review")
+                .replace("Admin/Principal review", "VidyaSetu Onboarding Team review")
+                .replace("admin/principal review", "VidyaSetu Onboarding Team review");
     }
 
     private boolean isSystemReservedSchoolId(String schoolId) { return List.of("BRK1", "DEMO", "TEST").contains(schoolId); }
@@ -403,7 +403,7 @@ public class SchoolRegistrationService {
     private String statusMessage(String status) {
         return switch (status) {
             case "RESERVED" -> "school_id is reserved but registration details are not completed yet.";
-            case "PENDING" -> "Your registration request is under review by the VidyaSetu onboarding team.";
+            case "PENDING" -> "Your registration request is under review by the VidyaSetu Onboarding Team.";
             case "APPROVED" -> "Your school registration is approved. VidyaSetu is preparing the ERP workspace.";
             case "PILOT" -> "Pilot workspace validation is enabled. Login credentials will be issued after activation.";
             case "ACTIVE" -> "Your school workspace is active. ERP login is enabled after credentials are issued.";
@@ -414,10 +414,10 @@ public class SchoolRegistrationService {
     private String nextStep(String status) {
         return switch (status) {
             case "RESERVED" -> "Complete school registration using the reserved school_id.";
-            case "PENDING" -> "VidyaSetu onboarding team will review your registration and move it through the onboarding stages.";
-            case "APPROVED" -> "VidyaSetu onboarding team will complete workspace setup and enable pilot validation.";
-            case "PILOT" -> "VidyaSetu onboarding team will validate the pilot workspace and activate login when ready.";
-            case "ACTIVE" -> "Generate or view the activation package, issue Admin/Principal credentials, and complete first login validation.";
+            case "PENDING" -> "VidyaSetu Onboarding Team will review your registration and move it through the onboarding stages.";
+            case "APPROVED" -> "VidyaSetu Onboarding Team will complete workspace setup and enable pilot validation.";
+            case "PILOT" -> "VidyaSetu Onboarding Team will validate the pilot workspace and activate login when ready.";
+            case "ACTIVE" -> "VidyaSetu Onboarding Team will issue credentials and complete first login validation.";
             case "REJECTED" -> "Contact school again or submit a new onboarding request.";
             default -> "Continue onboarding review.";
         };
