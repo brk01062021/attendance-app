@@ -7,6 +7,7 @@ import com.school.attendance.entity.AppUser;
 import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.security.JwtUtil;
 import com.school.attendance.security.SecurityAccess;
+import com.school.attendance.service.onboarding.SchoolRegistrationService;
 import com.school.attendance.tenant.TenantContext;
 import com.school.attendance.tenant.TenantUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,13 +23,16 @@ public class AuthController {
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final SchoolRegistrationService schoolRegistrationService;
 
     public AuthController(AppUserRepository userRepository,
                           PasswordEncoder passwordEncoder,
-                          JwtUtil jwtUtil) {
+                          JwtUtil jwtUtil,
+                          SchoolRegistrationService schoolRegistrationService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+        this.schoolRegistrationService = schoolRegistrationService;
     }
 
     @PostMapping("/register")
@@ -60,6 +64,10 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@RequestBody LoginRequest request) {
         String requestedSchoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
+
+        if (!schoolRegistrationService.isLoginEnabledForSchoolId(requestedSchoolCode)) {
+            throw new RuntimeException("School registration is not active yet. Please check registration status using your reference ID.");
+        }
 
         AppUser user = userRepository.findByUsernameAndSchoolCodeIgnoreCase(request.getUsername(), requestedSchoolCode)
                 .or(() -> userRepository.findByUsername(request.getUsername()))

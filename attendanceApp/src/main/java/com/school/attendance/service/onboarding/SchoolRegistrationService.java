@@ -22,7 +22,7 @@ import java.util.UUID;
 public class SchoolRegistrationService {
     private static final String SCHOOL_ID_PATTERN = "^[A-Z0-9]{4}$";
     private static final List<String> BLOCKING_SCHOOL_ID_STATUSES = List.of("RESERVED", "PENDING", "APPROVED", "PILOT", "ACTIVE");
-    private static final List<String> REVIEW_QUEUE_STATUSES = List.of("PENDING", "APPROVED", "PILOT", "RESERVED", "REJECTED");
+    private static final List<String> REVIEW_QUEUE_STATUSES = List.of("PENDING", "APPROVED", "PILOT", "ACTIVE", "RESERVED", "REJECTED");
     private final SchoolOnboardingRequestRepository onboardingRepository;
 
     public SchoolRegistrationService(SchoolOnboardingRequestRepository onboardingRepository) {
@@ -153,6 +153,16 @@ public class SchoolRegistrationService {
 
     public List<OnboardingReviewItemDTO> getReviewQueue() {
         return onboardingRepository.findByStatusInOrderByUpdatedAtDesc(REVIEW_QUEUE_STATUSES).stream().map(this::toReviewItem).toList();
+    }
+
+    public boolean isLoginEnabledForSchoolId(String rawSchoolId) {
+        String schoolId = normalizeSchoolId(rawSchoolId);
+        if ("BRK1".equals(schoolId) || "DEMO".equals(schoolId)) {
+            return true;
+        }
+        return onboardingRepository.findTopBySchoolIdOrderByUpdatedAtDesc(schoolId)
+                .map(request -> "ACTIVE".equals(request.getStatus()))
+                .orElse(false);
     }
 
     @Transactional

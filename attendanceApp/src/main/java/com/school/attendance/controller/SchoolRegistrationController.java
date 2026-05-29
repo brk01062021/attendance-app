@@ -62,6 +62,12 @@ public class SchoolRegistrationController {
         return ResponseEntity.ok(schoolRegistrationService.getNotStartedStatus(null));
     }
 
+
+    @GetMapping("/status/{referenceId}")
+    public ResponseEntity<OnboardingStatusResponseDTO> getStatusByReferencePath(@PathVariable String referenceId) {
+        return ResponseEntity.ok(schoolRegistrationService.getStatus(referenceId));
+    }
+
     @GetMapping("/status/by-school-id")
     public ResponseEntity<OnboardingStatusResponseDTO> getStatusBySchoolId(@RequestParam String schoolId) {
         return ResponseEntity.ok(schoolRegistrationService.getStatusBySchoolId(schoolId));

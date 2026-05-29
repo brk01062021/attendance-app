@@ -13,4 +13,5 @@ public interface SchoolOnboardingRequestRepository extends JpaRepository<SchoolO
     Optional<SchoolOnboardingRequest> findTopBySchoolIdOrderByUpdatedAtDesc(String schoolId);
     boolean existsBySchoolIdAndStatusIn(String schoolId, List<String> statuses);
     List<SchoolOnboardingRequest> findByStatusInOrderByUpdatedAtDesc(List<String> statuses);
+    List<SchoolOnboardingRequest> findAllByOrderByUpdatedAtDesc();
 }
