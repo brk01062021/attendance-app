@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -14,6 +15,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(ApiResponse.error(ex.getMessage(), "BAD_REQUEST"));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingRequestParameter(MissingServletRequestParameterException ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.error("Missing required parameter: " + ex.getParameterName(), "MISSING_PARAMETER"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -41,7 +47,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception ex) {
+        ex.printStackTrace();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("Unexpected server error", "INTERNAL_SERVER_ERROR"));
+                .body(ApiResponse.error("Unexpected server error: " + ex.getClass().getSimpleName(), "INTERNAL_SERVER_ERROR"));
     }
 }
