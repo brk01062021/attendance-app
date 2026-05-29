@@ -72,6 +72,34 @@ public class SchoolRegistrationController {
         return ResponseEntity.ok(schoolRegistrationService.getReviewQueue());
     }
 
+    @PostMapping("/review/{referenceId}/approve")
+    public ResponseEntity<OnboardingStatusResponseDTO> approveTenant(
+            @PathVariable String referenceId,
+            @RequestBody(required = false) OnboardingStatusUpdateRequestDTO request) {
+        return ResponseEntity.ok(schoolRegistrationService.approveTenant(referenceId, request));
+    }
+
+    @PostMapping("/review/{referenceId}/reject")
+    public ResponseEntity<OnboardingStatusResponseDTO> rejectTenant(
+            @PathVariable String referenceId,
+            @RequestBody(required = false) OnboardingStatusUpdateRequestDTO request) {
+        return ResponseEntity.ok(schoolRegistrationService.rejectTenant(referenceId, request));
+    }
+
+    @PostMapping("/review/{referenceId}/mark-pilot")
+    public ResponseEntity<OnboardingStatusResponseDTO> markPilot(
+            @PathVariable String referenceId,
+            @RequestBody(required = false) OnboardingStatusUpdateRequestDTO request) {
+        return ResponseEntity.ok(schoolRegistrationService.markPilot(referenceId, request));
+    }
+
+    @PostMapping("/review/{referenceId}/activate")
+    public ResponseEntity<OnboardingStatusResponseDTO> activateTenant(
+            @PathVariable String referenceId,
+            @RequestBody(required = false) OnboardingStatusUpdateRequestDTO request) {
+        return ResponseEntity.ok(schoolRegistrationService.activateTenant(referenceId, request));
+    }
+
     @PostMapping("/review/{referenceId}/status")
     public ResponseEntity<OnboardingStatusResponseDTO> updateLifecycleStatus(
             @PathVariable String referenceId,

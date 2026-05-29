@@ -13,7 +13,14 @@ public class OnboardingReviewItemDTO {
     private Integer expectedTeachers;
     private String city;
     private String state;
+    private String submittedAt;
     private String updatedAt;
+    private String approvedAt;
+    private String pilotActivatedAt;
+    private String activatedAt;
+    private String rejectedAt;
+    private String reviewNotes;
+    private String statusHistory;
 
     public String getReferenceId() { return referenceId; }
     public void setReferenceId(String referenceId) { this.referenceId = referenceId; }
@@ -39,6 +46,20 @@ public class OnboardingReviewItemDTO {
     public void setCity(String city) { this.city = city; }
     public String getState() { return state; }
     public void setState(String state) { this.state = state; }
+    public String getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(String submittedAt) { this.submittedAt = submittedAt; }
     public String getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(String updatedAt) { this.updatedAt = updatedAt; }
+    public String getApprovedAt() { return approvedAt; }
+    public void setApprovedAt(String approvedAt) { this.approvedAt = approvedAt; }
+    public String getPilotActivatedAt() { return pilotActivatedAt; }
+    public void setPilotActivatedAt(String pilotActivatedAt) { this.pilotActivatedAt = pilotActivatedAt; }
+    public String getActivatedAt() { return activatedAt; }
+    public void setActivatedAt(String activatedAt) { this.activatedAt = activatedAt; }
+    public String getRejectedAt() { return rejectedAt; }
+    public void setRejectedAt(String rejectedAt) { this.rejectedAt = rejectedAt; }
+    public String getReviewNotes() { return reviewNotes; }
+    public void setReviewNotes(String reviewNotes) { this.reviewNotes = reviewNotes; }
+    public String getStatusHistory() { return statusHistory; }
+    public void setStatusHistory(String statusHistory) { this.statusHistory = statusHistory; }
 }

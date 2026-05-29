@@ -44,6 +44,9 @@ public class SchoolOnboardingRequest {
     @Column(length = 2000)
     private String reviewNotes;
 
+    @Column(length = 4000)
+    private String statusHistory;
+
     private LocalDateTime reservedAt;
     private LocalDateTime submittedAt;
     private LocalDateTime approvedAt;
@@ -83,6 +86,8 @@ public class SchoolOnboardingRequest {
     public void setNotes(String notes) { this.notes = notes; }
     public String getReviewNotes() { return reviewNotes; }
     public void setReviewNotes(String reviewNotes) { this.reviewNotes = reviewNotes; }
+    public String getStatusHistory() { return statusHistory; }
+    public void setStatusHistory(String statusHistory) { this.statusHistory = statusHistory; }
     public LocalDateTime getReservedAt() { return reservedAt; }
     public void setReservedAt(LocalDateTime reservedAt) { this.reservedAt = reservedAt; }
     public LocalDateTime getSubmittedAt() { return submittedAt; }
