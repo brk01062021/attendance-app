@@ -25,6 +25,12 @@ public class AppUser {
     private String displayName;
     private String schoolName = "VidyaSetu Demo School";
 
+    @Column(name = "credentials_active", nullable = false)
+    private Boolean credentialsActive = true;
+
+    @Column(name = "force_password_change", nullable = false)
+    private Boolean forcePasswordChange = false;
+
     public Long getId() { return id; }
 
     public Long getTeacherId() { return teacherId; }
@@ -74,4 +80,11 @@ public class AppUser {
     }
 
     public void setSchoolName(String schoolName) { this.schoolName = schoolName; }
+
+    public Boolean getCredentialsActive() { return credentialsActive == null ? true : credentialsActive; }
+    public void setCredentialsActive(Boolean credentialsActive) { this.credentialsActive = credentialsActive == null ? true : credentialsActive; }
+
+    public Boolean getForcePasswordChange() { return forcePasswordChange == null ? false : forcePasswordChange; }
+    public void setForcePasswordChange(Boolean forcePasswordChange) { this.forcePasswordChange = forcePasswordChange == null ? false : forcePasswordChange; }
 }
+

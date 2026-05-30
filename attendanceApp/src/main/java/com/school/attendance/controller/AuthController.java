@@ -1,6 +1,7 @@
 package com.school.attendance.controller;
 
 import com.school.attendance.dto.AuthResponse;
+import com.school.attendance.dto.ChangePasswordRequest;
 import com.school.attendance.dto.LoginRequest;
 import com.school.attendance.dto.RegisterRequest;
 import com.school.attendance.entity.AppUser;
@@ -70,11 +71,14 @@ public class AuthController {
         }
 
         AppUser user = userRepository.findByUsernameAndSchoolCodeIgnoreCase(request.getUsername(), requestedSchoolCode)
-                .or(() -> userRepository.findByUsername(request.getUsername()))
-                .orElseThrow(() -> new RuntimeException("Invalid username or password"));
+                .orElseThrow(() -> new RuntimeException("Invalid username, password, or school ID"));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new RuntimeException("Invalid username or password");
+            throw new RuntimeException("Invalid username, password, or school ID");
+        }
+
+        if (!Boolean.TRUE.equals(user.getCredentialsActive())) {
+            throw new RuntimeException("Credentials are inactive. Please contact VidyaSetu Onboarding Team for reset/regeneration.");
         }
 
         String schoolCode = TenantUtils.normalizeOrDefault(user.getSchoolCode());
@@ -91,7 +95,55 @@ public class AuthController {
                 user.getTeacherName(),
                 user.getDisplayName(),
                 user.getSchoolName(),
-                SecurityAccess.normalizeRole(user.getRole())
+                SecurityAccess.normalizeRole(user.getRole()),
+                Boolean.TRUE.equals(user.getForcePasswordChange())
+        );
+    }
+
+    @PostMapping("/change-password")
+    public AuthResponse changePassword(@RequestBody ChangePasswordRequest request) {
+        String requestedSchoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
+
+        AppUser user = userRepository.findByUsernameAndSchoolCodeIgnoreCase(request.getUsername(), requestedSchoolCode)
+                .orElseThrow(() -> new RuntimeException("Invalid username, password, or school ID"));
+
+        if (!Boolean.TRUE.equals(user.getCredentialsActive())) {
+            throw new RuntimeException("Credentials are inactive. Please contact VidyaSetu Onboarding Team for reset/regeneration.");
+        }
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new RuntimeException("Current password is incorrect.");
+        }
+
+        String newPassword = request.getNewPassword() == null ? "" : request.getNewPassword().trim();
+        if (newPassword.length() < 8) {
+            throw new RuntimeException("New password must be at least 8 characters.");
+        }
+        if (passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new RuntimeException("New password must be different from temporary password.");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setForcePasswordChange(false);
+        user.setCredentialsActive(true);
+        userRepository.save(user);
+
+        String schoolCode = TenantUtils.normalizeOrDefault(user.getSchoolCode());
+        TenantContext.setSchoolId(schoolCode);
+        String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), schoolCode, user.getId());
+
+        return new AuthResponse(
+                token,
+                user.getId(),
+                user.getSchoolId(),
+                schoolCode,
+                user.getTeacherId(),
+                user.getTeacherName(),
+                user.getDisplayName(),
+                user.getSchoolName(),
+                SecurityAccess.normalizeRole(user.getRole()),
+                false
         );
     }
 }
+

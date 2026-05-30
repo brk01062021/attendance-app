@@ -89,6 +89,11 @@ public class SchoolRegistrationController {
         return ResponseEntity.ok(schoolRegistrationService.generateActivationPackage(referenceId));
     }
 
+    @PostMapping("/activation-package/{referenceId}/regenerate-credentials")
+    public ResponseEntity<ActivationPackageDTO> regenerateActivationCredentials(@PathVariable String referenceId) {
+        return ResponseEntity.ok(schoolRegistrationService.regenerateActivationCredentials(referenceId));
+    }
+
     @PostMapping("/review/{referenceId}/approve")
     public ResponseEntity<OnboardingStatusResponseDTO> approveTenant(
             @PathVariable String referenceId,

@@ -261,6 +261,44 @@ public class SchoolRegistrationService {
                 "Share these credentials securely with the approved school authority, then ask Admin and Principal to login using school_id " + schoolId + ".");
     }
 
+    @Transactional
+    public ActivationPackageDTO regenerateActivationCredentials(String referenceId) {
+        SchoolOnboardingRequest onboarding = onboardingRepository.findByReferenceId(referenceId)
+                .orElseThrow(() -> new IllegalArgumentException("Onboarding reference not found."));
+        if (!"ACTIVE".equals(onboarding.getStatus())) {
+            throw new IllegalArgumentException("Credentials can be regenerated only after school workspace status is ACTIVE.");
+        }
+        if (onboarding.getSchoolId() == null || onboarding.getSchoolId().isBlank()) {
+            throw new IllegalArgumentException("school_id is required before credential regeneration.");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String schoolId = normalizeSchoolId(onboarding.getSchoolId());
+        String adminUsername = schoolId.toLowerCase(Locale.ROOT) + ".admin";
+        String principalUsername = schoolId.toLowerCase(Locale.ROOT) + ".principal";
+        String adminPassword = generateInitialPassword(schoolId, "ADM");
+        String principalPassword = generateInitialPassword(schoolId, "PRI");
+
+        provisionUser(adminUsername, adminPassword, "ADMIN", "School Admin", onboarding);
+        provisionUser(principalUsername, principalPassword, "PRINCIPAL", "Principal", onboarding);
+
+        onboarding.setAdminUsername(adminUsername);
+        onboarding.setAdminInitialPassword(adminPassword);
+        onboarding.setPrincipalUsername(principalUsername);
+        onboarding.setPrincipalInitialPassword(principalPassword);
+        onboarding.setCredentialsIssuedBy(VIDYASETU_ONBOARDING_TEAM);
+        onboarding.setCredentialsIssuedAt(now);
+        onboarding.setUpdatedAt(now);
+        appendAudit(onboarding, VIDYASETU_ONBOARDING_TEAM, "CREDENTIALS_ISSUED", "CREDENTIALS_REGENERATED", "Temporary Admin and Principal credentials regenerated; previous passwords are invalidated", now);
+        onboardingRepository.save(onboarding);
+
+        return buildActivationPackage(onboarding, List.of(
+                        new ActivationCredentialDTO("ADMIN", adminUsername, adminPassword, "School Admin", false),
+                        new ActivationCredentialDTO("PRINCIPAL", principalUsername, principalPassword, "Principal", false)
+                ), "Credentials regenerated. Old temporary passwords are now invalid.",
+                "Share the new credentials securely. First login must complete temporary password change before dashboard access.");
+    }
+
     public ActivationPackageDTO getActivationPackage(String referenceId) {
         SchoolOnboardingRequest onboarding = onboardingRepository.findByReferenceId(referenceId)
                 .orElseThrow(() -> new IllegalArgumentException("Onboarding reference not found."));
@@ -324,7 +362,17 @@ public class SchoolRegistrationService {
 
     private boolean provisionUser(String username, String rawPassword, String role, String displayName, SchoolOnboardingRequest onboarding) {
         String schoolId = normalizeSchoolId(onboarding.getSchoolId());
-        if (appUserRepository.findByUsernameAndSchoolCodeIgnoreCase(username, schoolId).isPresent()) return false;
+        var existing = appUserRepository.findByUsernameAndSchoolCodeIgnoreCase(username, schoolId);
+        if (existing.isPresent()) {
+            AppUser user = existing.get();
+            user.setPassword(passwordEncoder.encode(rawPassword));
+            user.setCredentialsActive(true);
+            user.setForcePasswordChange(true);
+            user.setSchoolName(onboarding.getSchoolName());
+            user.setDisplayName(displayName);
+            appUserRepository.save(user);
+            return false;
+        }
         AppUser user = new AppUser();
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(rawPassword));
@@ -333,6 +381,8 @@ public class SchoolRegistrationService {
         user.setSchoolCode(schoolId);
         user.setDisplayName(displayName);
         user.setSchoolName(onboarding.getSchoolName());
+        user.setCredentialsActive(true);
+        user.setForcePasswordChange(true);
         appUserRepository.save(user);
         return true;
     }
