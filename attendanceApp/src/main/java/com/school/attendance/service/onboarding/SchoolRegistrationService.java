@@ -9,6 +9,7 @@ import com.school.attendance.dto.onboarding.PilotDemoRequestDTO;
 import com.school.attendance.dto.onboarding.SchoolIdAvailabilityResponseDTO;
 import com.school.attendance.dto.onboarding.SchoolRegistrationRequestDTO;
 import com.school.attendance.dto.onboarding.SchoolRegistrationResponseDTO;
+import com.school.attendance.dto.onboarding.WorkspaceProvisioningStepDTO;
 import com.school.attendance.entity.AppUser;
 import com.school.attendance.entity.SchoolOnboardingRequest;
 import com.school.attendance.repository.AppUserRepository;
@@ -205,7 +206,11 @@ public class SchoolRegistrationService {
         onboarding.setUpdatedAt(now);
         if ("APPROVED".equals(nextStatus)) { onboarding.setApprovedAt(now); onboarding.setApprovedBy(VIDYASETU_ONBOARDING_TEAM); }
         if ("PILOT".equals(nextStatus)) { onboarding.setPilotActivatedAt(now); onboarding.setPilotEnabledBy(VIDYASETU_ONBOARDING_TEAM); }
-        if ("ACTIVE".equals(nextStatus)) { onboarding.setActivatedAt(now); onboarding.setActivatedBy(VIDYASETU_ONBOARDING_TEAM); }
+        if ("ACTIVE".equals(nextStatus)) {
+            onboarding.setActivatedAt(now);
+            onboarding.setActivatedBy(VIDYASETU_ONBOARDING_TEAM);
+            appendAudit(onboarding, VIDYASETU_ONBOARDING_TEAM, "WORKSPACE_SETUP", "INITIALIZED", "Tenant workspace shell initialized for school_id " + normalizeSchoolId(onboarding.getSchoolId()) + "; import remains disabled until Excel onboarding validation", now);
+        }
         if ("REJECTED".equals(nextStatus)) onboarding.setRejectedAt(now);
         appendAudit(onboarding, VIDYASETU_ONBOARDING_TEAM, fromStatus, nextStatus, onboarding.getReviewNotes(), now);
         onboardingRepository.save(onboarding);
@@ -244,26 +249,16 @@ public class SchoolRegistrationService {
         onboarding.setCredentialsIssuedBy(VIDYASETU_ONBOARDING_TEAM);
         if (onboarding.getCredentialsIssuedAt() == null) onboarding.setCredentialsIssuedAt(now);
         onboarding.setUpdatedAt(now);
-        appendAudit(onboarding, VIDYASETU_ONBOARDING_TEAM, "ACTIVE", "CREDENTIALS_ISSUED", "First Admin and Principal credentials generated", now);
+        if (onboarding.getCredentialsIssuedAt() == null || adminCreated || principalCreated) {
+            appendAudit(onboarding, VIDYASETU_ONBOARDING_TEAM, "ACTIVE", "CREDENTIALS_ISSUED", "First Admin and Principal credentials generated", now);
+        }
         onboardingRepository.save(onboarding);
 
-        ActivationPackageDTO dto = new ActivationPackageDTO();
-        dto.setReferenceId(onboarding.getReferenceId());
-        dto.setSchoolId(schoolId);
-        dto.setSchoolName(onboarding.getSchoolName());
-        dto.setStatus(onboarding.getStatus());
-        dto.setRegistrationDate(toIso(onboarding.getSubmittedAt()));
-        dto.setActivatedAt(toIso(onboarding.getActivatedAt()));
-        dto.setCredentialsIssuedAt(toIso(onboarding.getCredentialsIssuedAt()));
-        dto.setLoginEnabled(true);
-        dto.setMessage("Activation package is ready. First Admin and Principal accounts are provisioned for ERP login.");
-        dto.setNextStep("Share these credentials securely with the approved school authority, then ask Admin and Principal to login using school_id " + schoolId + ".");
-        dto.setCredentials(List.of(
-                new ActivationCredentialDTO("ADMIN", adminUsername, adminPassword, "School Admin", adminCreated),
-                new ActivationCredentialDTO("PRINCIPAL", principalUsername, principalPassword, "Principal", principalCreated)
-        ));
-        dto.setStatusSummary(toStatusResponse(onboarding));
-        return dto;
+        return buildActivationPackage(onboarding, List.of(
+                        new ActivationCredentialDTO("ADMIN", adminUsername, adminPassword, "School Admin", adminCreated),
+                        new ActivationCredentialDTO("PRINCIPAL", principalUsername, principalPassword, "Principal", principalCreated)
+                ), "Activation package is ready. First Admin and Principal accounts are provisioned for ERP login.",
+                "Share these credentials securely with the approved school authority, then ask Admin and Principal to login using school_id " + schoolId + ".");
     }
 
     public ActivationPackageDTO getActivationPackage(String referenceId) {
@@ -275,23 +270,56 @@ public class SchoolRegistrationService {
         if (onboarding.getAdminUsername() == null || onboarding.getPrincipalUsername() == null) {
             return generateActivationPackage(referenceId);
         }
+        return buildActivationPackage(onboarding, List.of(
+                        new ActivationCredentialDTO("ADMIN", onboarding.getAdminUsername(), onboarding.getAdminInitialPassword(), "School Admin", false),
+                        new ActivationCredentialDTO("PRINCIPAL", onboarding.getPrincipalUsername(), onboarding.getPrincipalInitialPassword(), "Principal", false)
+                ), "Activation package is ready. Login is enabled for this school workspace.",
+                "Share credentials securely and complete first login validation.");
+    }
+
+
+    private ActivationPackageDTO buildActivationPackage(SchoolOnboardingRequest onboarding, List<ActivationCredentialDTO> credentials, String message, String nextStep) {
+        String schoolId = normalizeSchoolId(onboarding.getSchoolId());
         ActivationPackageDTO dto = new ActivationPackageDTO();
         dto.setReferenceId(onboarding.getReferenceId());
-        dto.setSchoolId(onboarding.getSchoolId());
+        dto.setSchoolId(schoolId);
         dto.setSchoolName(onboarding.getSchoolName());
         dto.setStatus(onboarding.getStatus());
         dto.setRegistrationDate(toIso(onboarding.getSubmittedAt()));
         dto.setActivatedAt(toIso(onboarding.getActivatedAt()));
         dto.setCredentialsIssuedAt(toIso(onboarding.getCredentialsIssuedAt()));
-        dto.setLoginEnabled(true);
-        dto.setMessage("Activation package is ready. Login is enabled for this school workspace.");
-        dto.setNextStep("Share credentials securely and complete first login validation.");
-        dto.setCredentials(List.of(
-                new ActivationCredentialDTO("ADMIN", onboarding.getAdminUsername(), onboarding.getAdminInitialPassword(), "School Admin", false),
-                new ActivationCredentialDTO("PRINCIPAL", onboarding.getPrincipalUsername(), onboarding.getPrincipalInitialPassword(), "Principal", false)
+        dto.setLoginEnabled("ACTIVE".equals(onboarding.getStatus()) && onboarding.getCredentialsIssuedAt() != null);
+        dto.setMessage(message);
+        dto.setNextStep(nextStep);
+        dto.setCredentials(credentials);
+        dto.setWorkspaceSteps(workspaceSteps(onboarding));
+        dto.setActivationChecklist(List.of(
+                "Confirm school_id " + schoolId + " and school name before sharing credentials",
+                "Share first Admin and Principal credentials only with the approved school authority",
+                "Complete first login validation for both roles",
+                "Ask school to change temporary passwords before real data import",
+                "Keep Excel import disabled until final onboarding sheet validation"
+        ));
+        dto.setImportPreparationChecklist(List.of(
+                "Prepare final Classes, Sections, Teachers, Students, Subjects, TeacherPools, and TeacherAssignments sheets",
+                "Validate student and teacher counts against expected onboarding size",
+                "Run preview/validation before committing import",
+                "Commit real Excel data only after workspace activation and credential handover"
         ));
         dto.setStatusSummary(toStatusResponse(onboarding));
         return dto;
+    }
+
+    private List<WorkspaceProvisioningStepDTO> workspaceSteps(SchoolOnboardingRequest onboarding) {
+        boolean active = "ACTIVE".equals(onboarding.getStatus());
+        boolean credentialsIssued = onboarding.getCredentialsIssuedAt() != null;
+        return List.of(
+                new WorkspaceProvisioningStepDTO("TENANT", "Tenant school_id reserved", onboarding.getSchoolId() == null || onboarding.getSchoolId().isBlank() ? "PENDING" : "DONE", "Immutable 4-character school_id: " + normalizeSchoolId(onboarding.getSchoolId())),
+                new WorkspaceProvisioningStepDTO("PROFILE", "School profile initialized", active ? "DONE" : "WAITING", onboarding.getSchoolName() + " profile is attached to the workspace shell"),
+                new WorkspaceProvisioningStepDTO("RBAC", "Admin/Principal RBAC prepared", active ? "DONE" : "WAITING", "First operational roles are restricted to school_id " + normalizeSchoolId(onboarding.getSchoolId())),
+                new WorkspaceProvisioningStepDTO("CREDENTIALS", "First credentials issued", credentialsIssued ? "DONE" : "WAITING", credentialsIssued ? "Temporary credentials are available in this package" : "Generate package after Active status"),
+                new WorkspaceProvisioningStepDTO("IMPORT", "Excel onboarding import", "LOCKED", "Real Excel import remains locked until school validates the activation package")
+        );
     }
 
     private boolean provisionUser(String username, String rawPassword, String role, String displayName, SchoolOnboardingRequest onboarding) {
@@ -417,7 +445,7 @@ public class SchoolRegistrationService {
             case "PENDING" -> "VidyaSetu Onboarding Team will review your registration and move it through the onboarding stages.";
             case "APPROVED" -> "VidyaSetu Onboarding Team will complete workspace setup and enable pilot validation.";
             case "PILOT" -> "VidyaSetu Onboarding Team will validate the pilot workspace and activate login when ready.";
-            case "ACTIVE" -> "VidyaSetu Onboarding Team will issue credentials and complete first login validation.";
+            case "ACTIVE" -> "Generate the activation package, share credentials securely, and complete first Admin/Principal login validation.";
             case "REJECTED" -> "Contact school again or submit a new onboarding request.";
             default -> "Continue onboarding review.";
         };
