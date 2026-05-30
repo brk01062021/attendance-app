@@ -87,4 +87,3 @@ public class AppUser {
     public Boolean getForcePasswordChange() { return forcePasswordChange == null ? false : forcePasswordChange; }
     public void setForcePasswordChange(Boolean forcePasswordChange) { this.forcePasswordChange = forcePasswordChange == null ? false : forcePasswordChange; }
 }
-

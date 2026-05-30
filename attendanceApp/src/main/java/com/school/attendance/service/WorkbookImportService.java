@@ -29,15 +29,18 @@ public class WorkbookImportService {
     private final SchoolImportUploadRepository uploadRepository;
     private final SchoolImportStagingRecordRepository stagingRepository;
     private final ObjectMapper objectMapper;
+    private final WorkspaceSetupService workspaceSetupService;
 
     public WorkbookImportService(ImportValidationService importValidationService,
                                  SchoolImportUploadRepository uploadRepository,
                                  SchoolImportStagingRecordRepository stagingRepository,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 WorkspaceSetupService workspaceSetupService) {
         this.importValidationService = importValidationService;
         this.uploadRepository = uploadRepository;
         this.stagingRepository = stagingRepository;
         this.objectMapper = objectMapper;
+        this.workspaceSetupService = workspaceSetupService;
     }
 
     @Transactional
@@ -50,6 +53,7 @@ public class WorkbookImportService {
             throw new IllegalArgumentException("Upload a valid Excel workbook before validation.");
         }
         String normalizedSchoolId = resolveSchoolId(schoolId);
+        workspaceSetupService.requireImportUnlocked(normalizedSchoolId);
         String safeImportType = normalizeImportType(importType);
         String safeRole = blankToDefault(requestedByRole, "ADMIN").toUpperCase(Locale.ROOT);
         String safeYear = blankToDefault(academicYear, "2026-2027");
@@ -135,6 +139,7 @@ public class WorkbookImportService {
     @Transactional
     public ImportCommitResponseDTO commit(Long uploadId, String schoolId) {
         SchoolImportUpload upload = tenantUpload(uploadId, schoolId);
+        workspaceSetupService.requireImportUnlocked(upload.getSchoolCode());
         if (upload.isRolledBack()) {
             throw new IllegalStateException("This import was rolled back and cannot be committed.");
         }
@@ -160,6 +165,7 @@ public class WorkbookImportService {
     @Transactional
     public ImportCommitResponseDTO rollback(Long uploadId, String schoolId) {
         SchoolImportUpload upload = tenantUpload(uploadId, schoolId);
+        workspaceSetupService.requireImportUnlocked(upload.getSchoolCode());
         if (upload.isRolledBack()) {
             return action(upload, "Import batch was already rolled back.");
         }

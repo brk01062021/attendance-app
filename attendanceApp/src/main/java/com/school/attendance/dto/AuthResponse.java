@@ -22,7 +22,7 @@ public class AuthResponse {
                         String displayName,
                         String schoolName,
                         String role) {
-        this(token, userId, schoolId, "DEMO", teacherId, teacherName, displayName, schoolName, role, false);
+        this(token, userId, schoolId, "DEMO", teacherId, teacherName, displayName, schoolName, role, false, true);
     }
 
     public AuthResponse(String token,
@@ -34,7 +34,7 @@ public class AuthResponse {
                         String displayName,
                         String schoolName,
                         String role) {
-        this(token, userId, schoolId, schoolCode, teacherId, teacherName, displayName, schoolName, role, false);
+        this(token, userId, schoolId, schoolCode, teacherId, teacherName, displayName, schoolName, role, false, true);
     }
 
     public AuthResponse(String token,
@@ -47,6 +47,20 @@ public class AuthResponse {
                         String schoolName,
                         String role,
                         boolean forcePasswordChange) {
+        this(token, userId, schoolId, schoolCode, teacherId, teacherName, displayName, schoolName, role, forcePasswordChange, true);
+    }
+
+    public AuthResponse(String token,
+                        Long userId,
+                        Long schoolId,
+                        String schoolCode,
+                        Long teacherId,
+                        String teacherName,
+                        String displayName,
+                        String schoolName,
+                        String role,
+                        boolean forcePasswordChange,
+                        boolean credentialsActive) {
         this.token = token;
         this.userId = userId;
         this.schoolId = schoolId;
@@ -57,7 +71,7 @@ public class AuthResponse {
         this.schoolName = schoolName;
         this.role = role;
         this.forcePasswordChange = forcePasswordChange;
-        this.credentialsActive = true;
+        this.credentialsActive = credentialsActive;
     }
 
     public String getToken() { return token; }
@@ -72,7 +86,4 @@ public class AuthResponse {
     public String getRole() { return role; }
     public boolean isForcePasswordChange() { return forcePasswordChange; }
     public boolean isCredentialsActive() { return credentialsActive; }
-    public void setCredentialsActive(boolean credentialsActive) { this.credentialsActive = credentialsActive; }
 }
-
-
