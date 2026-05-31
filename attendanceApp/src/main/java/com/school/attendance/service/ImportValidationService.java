@@ -21,7 +21,7 @@ public class ImportValidationService {
     private static final Set<String> ADMIN_IMPORT_ROLES = Set.of("ADMIN", "PRINCIPAL");
     private static final List<String> REQUIRED_MASTER_SHEETS = List.of(
             "SchoolProfile", "Students", "Parents", "Teachers", "TeacherAssignments",
-            "Subjects", "ClassSections", "TeacherPools", "Schedules"
+            "Subjects", "ClassSections", "TeacherPools", "AcademicRules", "Schedules"
     );
 
     public ImportPreviewResponseDTO validatePreview(ImportValidationRequestDTO request) {
@@ -120,7 +120,10 @@ public class ImportValidationService {
                 "Parents", List.of("admission_no", "parent_name"),
                 "Teachers", List.of("teacher_id", "teacher_name"),
                 "TeacherAssignments", List.of("teacher_id", "class_name", "section", "subject"),
-                "ClassSections", List.of("class_name", "section")
+                "ClassSections", List.of("class_name", "section"),
+                "TeacherPools", List.of("class_name", "teacher_pool"),
+                "AcademicRules", List.of("subject_name", "subject_type", "weekly_periods"),
+                "Schedules", List.of("day", "period", "start_time", "end_time")
         );
 
         List<String> required = requiredHeaders.get(sheetName);

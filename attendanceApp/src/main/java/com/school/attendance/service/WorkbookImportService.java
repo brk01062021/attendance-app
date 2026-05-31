@@ -283,15 +283,100 @@ public class WorkbookImportService {
         for (RowSnapshot row : snapshot.rows("TeacherAssignments")) {
             String teacherId = row.value("teacher_id");
             String subject = row.value("subject");
-            String classSection = row.value("class_name").toLowerCase(Locale.ROOT) + "|" + row.value("section").toLowerCase(Locale.ROOT);
-            if (!teacherId.isBlank() && !teacherIds.contains(teacherId.toUpperCase(Locale.ROOT))) {
+            String className = row.value("class_name");
+            String section = row.value("section");
+            String classSection = className.toLowerCase(Locale.ROOT) + "|" + section.toLowerCase(Locale.ROOT);
+            if (teacherId.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("TeacherAssignments", row.rowNumber(), "teacher_id", "ERROR", "Teacher assignment must include teacher_id."));
+            } else if (!teacherIds.contains(teacherId.toUpperCase(Locale.ROOT))) {
                 issues.add(new ImportValidationIssueDTO("TeacherAssignments", row.rowNumber(), "teacher_id", "ERROR", "Teacher assignment references a teacher ID not found in Teachers sheet."));
             }
-            if (!subject.isBlank() && !subjects.isEmpty() && !subjects.contains(subject.toLowerCase(Locale.ROOT))) {
+            if (className.isBlank() || section.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("TeacherAssignments", row.rowNumber(), "class_name/section", "ERROR", "Teacher assignment must include class_name and section."));
+            }
+            if (subject.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("TeacherAssignments", row.rowNumber(), "subject", "ERROR", "Teacher assignment subject is required."));
+            } else if (!subjects.isEmpty() && !subjects.contains(subject.toLowerCase(Locale.ROOT))) {
                 issues.add(new ImportValidationIssueDTO("TeacherAssignments", row.rowNumber(), "subject", "WARNING", "Teacher assignment subject is not listed in Subjects sheet."));
             }
             if (!classSections.isEmpty() && !classSections.contains(classSection)) {
                 issues.add(new ImportValidationIssueDTO("TeacherAssignments", row.rowNumber(), "class_name/section", "WARNING", "Teacher assignment class-section is not listed in ClassSections sheet."));
+            }
+        }
+
+        validateAcademicRules(snapshot, subjects, issues);
+        validateTeacherPools(snapshot, teacherIds, classSections, issues);
+        validateTimetableReadiness(snapshot, issues);
+    }
+
+    private void validateAcademicRules(WorkbookSnapshot snapshot, Set<String> subjects, List<ImportValidationIssueDTO> issues) {
+        for (RowSnapshot row : snapshot.rows("AcademicRules")) {
+            String subjectName = row.value("subject_name");
+            String subjectType = row.value("subject_type");
+            String weeklyPeriods = row.value("weekly_periods");
+            if (subjectName.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "subject_name", "ERROR", "Academic rule must include subject_name."));
+            } else if (!subjects.isEmpty() && !subjects.contains(subjectName.toLowerCase(Locale.ROOT))) {
+                issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "subject_name", "WARNING", "Academic rule subject is not listed in Subjects sheet."));
+            }
+            if (subjectType.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "subject_type", "WARNING", "Academic rule subject_type is missing. Default timetable rules may be applied."));
+            }
+            if (weeklyPeriods.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "weekly_periods", "ERROR", "Academic rule must include weekly_periods for timetable readiness."));
+            } else {
+                try {
+                    int periods = Integer.parseInt(weeklyPeriods.trim());
+                    if (periods <= 0 || periods > 12) {
+                        issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "weekly_periods", "ERROR", "weekly_periods must be between 1 and 12."));
+                    }
+                } catch (NumberFormatException ex) {
+                    issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "weekly_periods", "ERROR", "weekly_periods must be a whole number."));
+                }
+            }
+        }
+    }
+
+    private void validateTeacherPools(WorkbookSnapshot snapshot, Set<String> teacherIds, Set<String> classSections, List<ImportValidationIssueDTO> issues) {
+        for (RowSnapshot row : snapshot.rows("TeacherPools")) {
+            String className = row.value("class_name");
+            String pool = firstNonBlank(row.value("teacher_pool"), row.value("teacher_ids"), row.value("teachers"));
+            if (className.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("TeacherPools", row.rowNumber(), "class_name", "ERROR", "Teacher pool must include class_name."));
+            }
+            if (pool.isBlank()) {
+                issues.add(new ImportValidationIssueDTO("TeacherPools", row.rowNumber(), "teacher_pool", "ERROR", "Teacher pool must include one or more teacher IDs."));
+                continue;
+            }
+            for (String token : pool.split("[,;|]")) {
+                String teacherId = token.trim();
+                if (!teacherId.isBlank() && !teacherIds.isEmpty() && !teacherIds.contains(teacherId.toUpperCase(Locale.ROOT))) {
+                    issues.add(new ImportValidationIssueDTO("TeacherPools", row.rowNumber(), "teacher_pool", "WARNING", "Teacher pool references teacher ID " + teacherId + " that is not listed in Teachers sheet."));
+                }
+            }
+        }
+    }
+
+    private void validateTimetableReadiness(WorkbookSnapshot snapshot, List<ImportValidationIssueDTO> issues) {
+        Map<String, Integer> requiredReadinessSheets = new LinkedHashMap<>();
+        requiredReadinessSheets.put("ClassSections", snapshot.rows("ClassSections").size());
+        requiredReadinessSheets.put("TeacherPools", snapshot.rows("TeacherPools").size());
+        requiredReadinessSheets.put("TeacherAssignments", snapshot.rows("TeacherAssignments").size());
+        requiredReadinessSheets.put("Subjects", snapshot.rows("Subjects").size());
+        requiredReadinessSheets.put("AcademicRules", snapshot.rows("AcademicRules").size());
+        requiredReadinessSheets.put("Schedules", snapshot.rows("Schedules").size());
+        requiredReadinessSheets.forEach((sheetName, count) -> {
+            if (count == 0) {
+                issues.add(new ImportValidationIssueDTO(sheetName, 0, "timetable_readiness", "ERROR", sheetName + " must contain data before timetable generation can be marked ready."));
+            }
+        });
+
+        for (RowSnapshot row : snapshot.rows("Schedules")) {
+            if (row.value("day").isBlank() || row.value("period").isBlank()) {
+                issues.add(new ImportValidationIssueDTO("Schedules", row.rowNumber(), "day/period", "ERROR", "Schedule rows must include day and period."));
+            }
+            if (row.value("start_time").isBlank() || row.value("end_time").isBlank()) {
+                issues.add(new ImportValidationIssueDTO("Schedules", row.rowNumber(), "start_time/end_time", "WARNING", "Schedule row is missing start_time or end_time."));
             }
         }
     }

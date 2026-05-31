@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping({"/imports", "/api/import-validation"})
+@RequestMapping({"/imports", "/api/import-validation", "/api/import-school-data/day9"})
 public class ImportValidationController {
 
     private final ImportValidationService importValidationService;
@@ -36,13 +36,15 @@ public class ImportValidationController {
         return ApiResponse.success("Import validation engine is ready", data);
     }
 
-    @GetMapping("/template-rules")
-    public ApiResponse<Map<String, Object>> templateRules(@RequestParam(defaultValue = "ADMIN") String role) {
+    @GetMapping({"/template-rules", "/template-requirements"})
+    public ApiResponse<Map<String, Object>> templateRules(@RequestParam(required = false) String schoolId,
+                                                          @RequestParam(defaultValue = "ADMIN") String role) {
         String normalizedRole = role == null || role.isBlank() ? "ADMIN" : role.trim().toUpperCase();
+        String normalizedSchoolId = schoolId == null || schoolId.isBlank() ? "" : schoolId.trim().toUpperCase();
 
         List<String> requiredSheets = List.of(
                 "SchoolProfile", "Students", "Parents", "Teachers", "TeacherAssignments",
-                "Subjects", "ClassSections", "TeacherPools", "Schedules"
+                "Subjects", "ClassSections", "TeacherPools", "AcademicRules", "Schedules"
         );
 
         Map<String, List<String>> requiredColumns = new LinkedHashMap<>();
@@ -54,6 +56,7 @@ public class ImportValidationController {
         requiredColumns.put("Subjects", List.of("subject_name", "subject_type", "weekly_periods"));
         requiredColumns.put("ClassSections", List.of("class_name", "section"));
         requiredColumns.put("TeacherPools", List.of("class_name", "teacher_pool"));
+        requiredColumns.put("AcademicRules", List.of("subject_name", "subject_type", "weekly_periods", "distribution_rule"));
         requiredColumns.put("Schedules", List.of("day", "period", "start_time", "end_time"));
 
         List<String> validationRules = new ArrayList<>();
@@ -61,9 +64,12 @@ public class ImportValidationController {
         validationRules.add("Admission numbers must be unique inside one school_id.");
         validationRules.add("Parent rows must link to a valid student admission_no.");
         validationRules.add("Teacher assignments must reference valid teacher_id, class_name, section, and subject values.");
-        validationRules.add("Workbook preview can show warnings, but commit is blocked for tenant mismatch or missing required sheets.");
+        validationRules.add("Academic Rules must provide subject_name, subject_type, and numeric weekly_periods for timetable readiness.");
+        validationRules.add("Timetable readiness requires ClassSections, TeacherPools, TeacherAssignments, Subjects, AcademicRules, and Schedules to pass validation before commit.");
+        validationRules.add("Workbook preview can show warnings, but commit is blocked for tenant mismatch or missing required sheets and row-level validation errors.");
 
         Map<String, Object> data = new LinkedHashMap<>();
+        data.put("schoolId", normalizedSchoolId);
         data.put("role", normalizedRole);
         data.put("allowedRoles", List.of("ADMIN", "PRINCIPAL"));
         data.put("importType", "MASTER_WORKBOOK");
@@ -73,7 +79,7 @@ public class ImportValidationController {
         data.put("status", List.of("UPLOADED", "READY_TO_IMPORT", "READY_WITH_WARNINGS", "BLOCKED", "COMMITTED", "ROLLED_BACK", "FAILED"));
         data.put("generatedAt", Instant.now().toString());
 
-        return ApiResponse.success("Import template rules loaded", data);
+        return ApiResponse.success("Import template requirements loaded", data);
     }
 
     @PostMapping("/preview/validate")
@@ -82,7 +88,7 @@ public class ImportValidationController {
         return ApiResponse.success("Excel import preview validation completed", response);
     }
 
-    @PostMapping("/workbooks/upload")
+    @PostMapping({"/workbooks/upload", "/validate"})
     public ApiResponse<ImportUploadResponseDTO> uploadWorkbook(@RequestParam("file") MultipartFile file,
                                                                @RequestParam String schoolId,
                                                                @RequestParam(defaultValue = "2026-2027") String academicYear,
@@ -97,17 +103,31 @@ public class ImportValidationController {
         return ApiResponse.success("Workbook upload history loaded", workbookImportService.history(schoolId));
     }
 
-    @GetMapping("/workbooks/{uploadId}/preview")
+    @GetMapping({"/workbooks/{uploadId}/preview", "/preview/{uploadId}"})
     public ApiResponse<ImportPreviewResponseDTO> preview(@PathVariable Long uploadId, @RequestParam String schoolId) {
         return ApiResponse.success("Workbook preview loaded", workbookImportService.preview(uploadId, schoolId));
     }
 
-    @PostMapping("/workbooks/{uploadId}/commit")
+    @PostMapping({"/workbooks/{uploadId}/commit", "/commit/{uploadId}"})
     public ApiResponse<ImportCommitResponseDTO> commit(@PathVariable Long uploadId, @RequestParam String schoolId) {
         return ApiResponse.success("Workbook import committed", workbookImportService.commit(uploadId, schoolId));
     }
 
-    @PostMapping("/workbooks/{uploadId}/rollback")
+    @PostMapping("/execute")
+    public ApiResponse<ImportCommitResponseDTO> execute(@RequestBody Map<String, Object> request) {
+        String schoolId = String.valueOf(request.getOrDefault("schoolId", "")).trim().toUpperCase();
+        Object rawUploadId = request.get("uploadId");
+        if (schoolId.isBlank()) {
+            throw new IllegalArgumentException("schoolId is required");
+        }
+        if (rawUploadId == null || String.valueOf(rawUploadId).isBlank()) {
+            throw new IllegalArgumentException("uploadId is required");
+        }
+        Long uploadId = Long.valueOf(String.valueOf(rawUploadId).trim());
+        return ApiResponse.success("Workbook import executed", workbookImportService.commit(uploadId, schoolId));
+    }
+
+    @PostMapping({"/workbooks/{uploadId}/rollback", "/rollback/{uploadId}"})
     public ApiResponse<ImportCommitResponseDTO> rollback(@PathVariable Long uploadId, @RequestParam String schoolId) {
         return ApiResponse.success("Workbook import rolled back", workbookImportService.rollback(uploadId, schoolId));
     }
