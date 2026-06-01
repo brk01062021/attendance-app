@@ -2,7 +2,9 @@ package com.school.attendance.service;
 
 import com.school.attendance.dto.*;
 import com.school.attendance.entity.SchoolImportUpload;
+import com.school.attendance.entity.SchoolOnboardingRequest;
 import com.school.attendance.repository.SchoolImportUploadRepository;
+import com.school.attendance.repository.SchoolOnboardingRequestRepository;
 import com.school.attendance.tenant.TenantUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,11 +17,14 @@ import java.util.List;
 public class WorkspaceActivationService {
     private final WorkspaceSetupService workspaceSetupService;
     private final SchoolImportUploadRepository importUploadRepository;
+    private final SchoolOnboardingRequestRepository onboardingRepository;
 
     public WorkspaceActivationService(WorkspaceSetupService workspaceSetupService,
-                                      SchoolImportUploadRepository importUploadRepository) {
+                                      SchoolImportUploadRepository importUploadRepository,
+                                      SchoolOnboardingRequestRepository onboardingRepository) {
         this.workspaceSetupService = workspaceSetupService;
         this.importUploadRepository = importUploadRepository;
+        this.onboardingRepository = onboardingRepository;
     }
 
     @Transactional(readOnly = true)
@@ -39,6 +44,8 @@ public class WorkspaceActivationService {
         boolean workspaceSetupReady = !checklist.isImportLocked();
         boolean importCommitted = !committed.isEmpty();
         boolean readyForActivation = schoolProfileReady && academicYearReady && workspaceSetupReady && importCommitted;
+        SchoolOnboardingRequest onboarding = onboardingRepository.findTopBySchoolIdOrderByUpdatedAtDesc(tenantId).orElse(null);
+        boolean active = onboarding != null && "ACTIVE".equalsIgnoreCase(onboarding.getStatus());
 
         WorkspaceActivationSummaryDTO summary = new WorkspaceActivationSummaryDTO();
         summary.setSchoolId(tenantId);
@@ -53,40 +60,63 @@ public class WorkspaceActivationService {
         summary.setLastWorkbookCommittedAt(committed.stream().map(SchoolImportUpload::getCommittedAt).filter(v -> v != null).findFirst().orElse(null));
         summary.setWorkspaceChecklist(checklist);
         summary.setReadinessPercent(calculateReadiness(schoolProfileReady, academicYearReady, workspaceSetupReady, importCommitted));
-        summary.setActivationStatus(readyForActivation ? "READY_FOR_ACTIVATION" : "PENDING_CONFIGURATION");
-        summary.setActivationMessage(readyForActivation
-                ? "School workspace is ready for activation. Admin and Principal can use the health center before enabling live operations."
-                : "Complete School Profile, Academic Year, Workspace Setup, and committed workbook import before activation.");
+        summary.setActivatedAt(onboarding == null ? null : onboarding.getActivatedAt());
+        summary.setActivatedBy(onboarding == null ? null : onboarding.getActivatedBy());
+        summary.setActivationStatus(active ? "ACTIVE" : readyForActivation ? "READY_FOR_ACTIVATION" : "PENDING_CONFIGURATION");
+        summary.setGoLiveStatus(active ? "LIVE_READY" : readyForActivation ? "READY_TO_GO_LIVE" : "SETUP_PENDING");
+        summary.setNextStep(active ? "School workspace is active. Continue daily ERP operations with Admin/Principal monitoring." : readyForActivation ? "Review the Go-Live readiness checks and activate the school workspace." : "Complete Workspace Setup, commit the workbook, then return to School Activation.");
+        summary.setActivationMessage(active
+                ? "School workspace is active. Tenant status is ACTIVE and ERP login access is enabled."
+                : readyForActivation
+                  ? "School workspace is ready for activation. Admin and Principal can use the health center before enabling live operations."
+                  : "Complete School Profile, Academic Year, Workspace Setup, and committed workbook import before activation.");
         summary.setHealthItems(List.of(
                 health("SCHOOL_PROFILE", "School Profile", schoolProfileReady, schoolProfileReady ? "School identity is configured." : "Add school name and profile details."),
                 health("ACADEMIC_YEAR", "Academic Year", academicYearReady, academicYearReady ? "Academic year dates are configured." : "Activate the academic year with start and end dates."),
                 health("WORKSPACE_SETUP", "Workspace Setup", workspaceSetupReady, workspaceSetupReady ? "Workspace checklist is complete." : checklist.getImportLockMessage()),
                 health("WORKBOOK_IMPORT", "School Data Workbook", importCommitted, importCommitted ? "Validated workbook has been committed." : "Upload, validate, and commit the workbook from Web ERP."),
+                health("TENANT_STATUS", "Tenant Status", active, active ? "Tenant status is ACTIVE for live ERP operations." : "Tenant is not active yet. Activation will move the school to ACTIVE."),
                 health("TENANT_ISOLATION", "Tenant Isolation", true, "Requests are bound to school_id " + tenantId + ".")
         ));
-        summary.setAuditTrail(buildAuditTrail(checklist, uploads, readyForActivation));
+        summary.setAuditTrail(buildAuditTrail(checklist, uploads, readyForActivation, onboarding));
         return summary;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public WorkspaceActivationSummaryDTO activate(String schoolId, SchoolActivationRequestDTO request) {
         WorkspaceActivationSummaryDTO summary = getSummary(schoolId);
         if (!summary.isReadyForActivation()) {
             throw new IllegalStateException("Workspace is not ready for activation. Complete all readiness checks first.");
         }
-        summary.setActivationStatus("ACTIVE_READY");
-        summary.setActivationMessage("Workspace activation checks passed. School operations can proceed with Admin/Principal monitoring.");
+        String activatedBy = clean(request == null ? null : request.getActivatedBy(), "VidyaSetu Onboarding Team");
+        SchoolOnboardingRequest onboarding = onboardingRepository.findTopBySchoolIdOrderByUpdatedAtDesc(summary.getSchoolId()).orElse(null);
+        if (onboarding != null) {
+            onboarding.setStatus("ACTIVE");
+            onboarding.setActivatedBy(activatedBy);
+            if (onboarding.getActivatedAt() == null) onboarding.setActivatedAt(LocalDateTime.now());
+            onboarding.setUpdatedAt(LocalDateTime.now());
+            onboarding.setReviewNotes(clean(request == null ? null : request.getRemarks(), "School workspace activated after workbook commit and readiness validation."));
+            onboardingRepository.save(onboarding);
+        }
+
+        summary = getSummary(summary.getSchoolId());
+        summary.setActivationStatus("ACTIVE");
+        summary.setGoLiveStatus("LIVE_READY");
+        summary.setNextStep("School workspace is active. Continue with Admin/Principal Activation Summary and daily ERP monitoring.");
+        summary.setActivationMessage("Activation completed successfully. Tenant status is ACTIVE and the school is ready for live ERP operations.");
+        summary.setActivatedBy(activatedBy);
+        summary.setActivatedAt(onboarding == null ? LocalDateTime.now() : onboarding.getActivatedAt());
         summary.getAuditTrail().add(0, new WorkspaceActivationAuditDTO(
-                "ACTIVATION_CHECK",
-                "Activation checks passed",
-                clean(request == null ? null : request.getRemarks(), "Workspace activation verified by Admin/Principal."),
-                "ACTIVE_READY",
+                "SCHOOL_ACTIVATION",
+                "School workspace activated",
+                clean(request == null ? null : request.getRemarks(), "Workbook commit, workspace setup, tenant isolation, and readiness gates passed."),
+                "ACTIVE",
                 LocalDateTime.now()
         ));
         return summary;
     }
 
-    private List<WorkspaceActivationAuditDTO> buildAuditTrail(WorkspaceChecklistDTO checklist, List<SchoolImportUpload> uploads, boolean ready) {
+    private List<WorkspaceActivationAuditDTO> buildAuditTrail(WorkspaceChecklistDTO checklist, List<SchoolImportUpload> uploads, boolean ready, SchoolOnboardingRequest onboarding) {
         List<WorkspaceActivationAuditDTO> audit = new java.util.ArrayList<>();
         audit.add(new WorkspaceActivationAuditDTO("WORKSPACE_SETUP", "Workspace setup reviewed",
                 checklist.getCompletedSteps() + " of " + checklist.getTotalSteps() + " setup steps completed.",
@@ -96,6 +126,11 @@ public class WorkspaceActivationService {
                 upload.getFileName() + " • " + upload.getTotalSheets() + " sheets • " + upload.getTotalRows() + " rows",
                 upload.isRolledBack() ? "ROLLED_BACK" : upload.isCommitted() ? "COMMITTED" : clean(upload.getStatus(), "UPLOADED"),
                 upload.isCommitted() && upload.getCommittedAt() != null ? upload.getCommittedAt() : upload.getUploadedAt())));
+        if (onboarding != null && "ACTIVE".equalsIgnoreCase(onboarding.getStatus())) {
+            audit.add(new WorkspaceActivationAuditDTO("TENANT_STATUS", "Tenant status transitioned to ACTIVE",
+                    "School workspace activation is complete and login access is enabled.",
+                    "ACTIVE", onboarding.getActivatedAt() == null ? onboarding.getUpdatedAt() : onboarding.getActivatedAt()));
+        }
         audit.add(new WorkspaceActivationAuditDTO("TENANT_STATUS", "Activation readiness calculated",
                 ready ? "All activation gates are passing." : "One or more activation gates are pending.",
                 ready ? "READY" : "PENDING", LocalDateTime.now()));

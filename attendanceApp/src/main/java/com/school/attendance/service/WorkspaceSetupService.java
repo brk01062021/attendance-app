@@ -103,8 +103,8 @@ public class WorkspaceSetupService {
         dto.setProgressPercent(s.getProgressPercent());
         dto.setImportLocked(s.isImportLocked());
         dto.setImportLockMessage(s.isImportLocked()
-                ? "Complete Workspace Initialization before importing school data. Required order: School Profile, Academic Year, Working Days, School Timings, Classes, Sections, Teachers, Subjects, Holiday Calendar."
-                : "Workspace Initialization complete. Import School Data is unlocked.");
+                ? "Complete Workspace Setup before importing school data. Required order: School Profile, Academic Year, Working Days, School Timings, Classes, Sections, Teachers, Subjects, Holiday Calendar."
+                : "Workspace Setup complete. Import School Data is unlocked.");
         dto.setUpdatedAt(s.getUpdatedAt());
         dto.setSteps(List.of(
                 new WorkspaceStepDTO("SCHOOL_PROFILE", "School Profile", s.isSchoolProfileCompleted(), true),
