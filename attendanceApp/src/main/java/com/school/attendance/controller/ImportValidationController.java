@@ -103,6 +103,12 @@ public class ImportValidationController {
         return ApiResponse.success("Workbook upload history loaded", workbookImportService.history(schoolId));
     }
 
+
+    @GetMapping({"/workbooks/commit-audit-trail", "/commit-audit-trail"})
+    public ApiResponse<List<ImportUploadHistoryDTO>> commitAuditTrail(@RequestParam String schoolId) {
+        return ApiResponse.success("Workbook commit and rollback audit trail loaded", workbookImportService.history(schoolId));
+    }
+
     @GetMapping({"/workbooks/{uploadId}/preview", "/preview/{uploadId}"})
     public ApiResponse<ImportPreviewResponseDTO> preview(@PathVariable Long uploadId, @RequestParam String schoolId) {
         return ApiResponse.success("Workbook preview loaded", workbookImportService.preview(uploadId, schoolId));

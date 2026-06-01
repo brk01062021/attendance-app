@@ -7,6 +7,7 @@ import com.school.attendance.entity.SchoolImportStagingRecord;
 import com.school.attendance.entity.SchoolImportUpload;
 import com.school.attendance.repository.SchoolImportStagingRecordRepository;
 import com.school.attendance.repository.SchoolImportUploadRepository;
+import com.school.attendance.repository.SchoolImportUploadSummaryProjection;
 import com.school.attendance.tenant.TenantContext;
 import com.school.attendance.tenant.TenantUtils;
 import org.apache.poi.ss.usermodel.*;
@@ -121,8 +122,9 @@ public class WorkbookImportService {
 
     public List<ImportUploadHistoryDTO> history(String schoolId) {
         String normalizedSchoolId = resolveSchoolId(schoolId);
-        return uploadRepository.findTop20BySchoolCodeIgnoreCaseOrderByUploadedAtDesc(normalizedSchoolId)
+        return uploadRepository.findUploadSummariesForSchool(normalizedSchoolId)
                 .stream()
+                .limit(20)
                 .map(this::toHistory)
                 .collect(Collectors.toList());
     }
@@ -430,6 +432,27 @@ public class WorkbookImportService {
             throw new IllegalArgumentException("Import upload does not belong to the active school_id.");
         }
         return upload;
+    }
+
+    private ImportUploadHistoryDTO toHistory(SchoolImportUploadSummaryProjection upload) {
+        ImportUploadHistoryDTO dto = new ImportUploadHistoryDTO();
+        dto.setUploadId(upload.getId());
+        dto.setSchoolId(upload.getSchoolCode());
+        dto.setFileName(upload.getFileName());
+        dto.setImportType(upload.getImportType());
+        dto.setAcademicYear(upload.getAcademicYear());
+        dto.setStatus(upload.getStatus());
+        dto.setImportBatchId(upload.getImportBatchId());
+        dto.setTotalRows(upload.getTotalRows());
+        dto.setTotalSheets(upload.getTotalSheets());
+        dto.setErrorCount(upload.getErrorCount());
+        dto.setWarningCount(upload.getWarningCount());
+        dto.setCommitted(upload.isCommitted());
+        dto.setRolledBack(upload.isRolledBack());
+        dto.setStagedRowCount(upload.getStagedRowCount());
+        dto.setLifecycleMessage(upload.getLifecycleMessage());
+        dto.setUploadedAt(upload.getUploadedAt());
+        return dto;
     }
 
     private ImportUploadHistoryDTO toHistory(SchoolImportUpload upload) {
