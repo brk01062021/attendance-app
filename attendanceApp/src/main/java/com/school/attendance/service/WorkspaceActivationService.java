@@ -34,6 +34,33 @@ public class WorkspaceActivationService {
         return buildSummary(schoolId, null);
     }
 
+    @Transactional(readOnly = true)
+    public ActivationOperationsCenterDTO operationsCenter(String schoolId) {
+        WorkspaceActivationSummaryDTO summary = buildSummary(schoolId, null);
+        ActivationOperationsCenterDTO center = new ActivationOperationsCenterDTO();
+        center.setSchoolId(summary.getSchoolId());
+        center.setSchoolName(summary.getSchoolName());
+        center.setActivationStatus(summary.getActivationStatus());
+        center.setReadinessPercent(summary.getReadinessPercent());
+        center.setReadyForActivation(summary.isReadyForActivation());
+        center.setTenantActive(summary.isTenantActive());
+        center.setReportingStatus(summary.isTenantActive() ? "LIVE_REPORTING_ENABLED" : summary.isReadyForActivation() ? "READY_FOR_ADMIN_PRINCIPAL_ACTIVATION" : "REPORTING_PRE_ACTIVATION");
+        center.setOperationsNote(summary.isTenantActive()
+                ? "Activation is complete. Admin and Principal can use this center for activation reporting and audit review."
+                : summary.isReadyForActivation()
+                  ? "All gates are ready. Admin or Principal can activate the workspace after final review."
+                  : "Activation remains blocked until all readiness gates are complete.");
+        center.setTimeline(summary.getAuditTrail().stream()
+                .map(item -> new ActivationOperationStepDTO(item.getEventType(), item.getTitle(), item.getStatus(), item.getDescription(), item.getEventAt()))
+                .toList());
+        center.setAdminPrincipalReportCards(summary.getHealthItems());
+        center.setNotesHistory(summary.getAuditTrail().stream()
+                .map(item -> item.getTitle() + " — " + item.getDescription())
+                .limit(10)
+                .toList());
+        return center;
+    }
+
     @Transactional
     public WorkspaceActivationSummaryDTO activate(String schoolId, SchoolActivationRequestDTO request) {
         String tenantId = TenantUtils.requireValidSchoolId(schoolId);

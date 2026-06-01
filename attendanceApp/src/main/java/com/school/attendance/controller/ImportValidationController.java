@@ -114,6 +114,11 @@ public class ImportValidationController {
         return ApiResponse.success("Workbook preview loaded", workbookImportService.preview(uploadId, schoolId));
     }
 
+    @GetMapping({"/workbooks/{uploadId}/error-intelligence", "/error-intelligence/{uploadId}"})
+    public ApiResponse<WorkbookErrorIntelligenceDTO> errorIntelligence(@PathVariable Long uploadId, @RequestParam String schoolId) {
+        return ApiResponse.success("Workbook error intelligence loaded", workbookImportService.errorIntelligence(uploadId, schoolId));
+    }
+
     @PostMapping({"/workbooks/{uploadId}/commit", "/commit/{uploadId}"})
     public ApiResponse<ImportCommitResponseDTO> commit(@PathVariable Long uploadId, @RequestParam String schoolId) {
         return ApiResponse.success("Workbook import committed", workbookImportService.commit(uploadId, schoolId));

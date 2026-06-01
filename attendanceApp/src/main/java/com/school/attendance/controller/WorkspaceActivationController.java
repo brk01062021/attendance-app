@@ -1,10 +1,13 @@
 package com.school.attendance.controller;
 
 import com.school.attendance.common.dto.ApiResponse;
+import com.school.attendance.dto.ActivationOperationsCenterDTO;
 import com.school.attendance.dto.SchoolActivationRequestDTO;
 import com.school.attendance.dto.WorkspaceActivationAuditDTO;
 import com.school.attendance.dto.WorkspaceActivationSummaryDTO;
 import com.school.attendance.dto.WorkspaceHealthItemDTO;
+import com.school.attendance.dto.imports.WorkbookErrorIntelligenceDTO;
+import com.school.attendance.service.WorkbookImportService;
 import com.school.attendance.service.WorkspaceActivationService;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,14 +17,27 @@ import java.util.List;
 @RequestMapping({"/workspace-activation", "/api/workspace-activation"})
 public class WorkspaceActivationController {
     private final WorkspaceActivationService service;
+    private final WorkbookImportService workbookImportService;
 
-    public WorkspaceActivationController(WorkspaceActivationService service) {
+    public WorkspaceActivationController(WorkspaceActivationService service,
+                                         WorkbookImportService workbookImportService) {
         this.service = service;
+        this.workbookImportService = workbookImportService;
     }
 
     @GetMapping({"/summary", "/health"})
     public ApiResponse<WorkspaceActivationSummaryDTO> summary(@RequestParam String schoolId) {
         return ApiResponse.success("Workspace activation health loaded", service.getSummary(schoolId));
+    }
+
+    @GetMapping("/operations-center")
+    public ApiResponse<ActivationOperationsCenterDTO> operationsCenter(@RequestParam String schoolId) {
+        return ApiResponse.success("Activation operations center loaded", service.operationsCenter(schoolId));
+    }
+
+    @GetMapping("/error-intelligence")
+    public ApiResponse<WorkbookErrorIntelligenceDTO> errorIntelligence(@RequestParam String schoolId) {
+        return ApiResponse.success("Workbook error intelligence loaded", workbookImportService.latestErrorIntelligence(schoolId));
     }
 
     @GetMapping("/audit-trail")

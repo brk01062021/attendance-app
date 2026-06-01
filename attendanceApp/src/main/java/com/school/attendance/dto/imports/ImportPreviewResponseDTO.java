@@ -17,6 +17,7 @@ public class ImportPreviewResponseDTO {
     private Map<String, Integer> rowCounts = new LinkedHashMap<>();
     private List<ImportSheetPreviewDTO> previewSheets = new ArrayList<>();
     private List<ImportValidationIssueDTO> issues = new ArrayList<>();
+    private WorkbookErrorIntelligenceDTO errorIntelligence;
     private Instant previewedAt = Instant.now();
 
     public String getSchoolId() { return schoolId; }
@@ -39,6 +40,8 @@ public class ImportPreviewResponseDTO {
     public void setPreviewSheets(List<ImportSheetPreviewDTO> previewSheets) { this.previewSheets = previewSheets; }
     public List<ImportValidationIssueDTO> getIssues() { return issues; }
     public void setIssues(List<ImportValidationIssueDTO> issues) { this.issues = issues; }
+    public WorkbookErrorIntelligenceDTO getErrorIntelligence() { return errorIntelligence; }
+    public void setErrorIntelligence(WorkbookErrorIntelligenceDTO errorIntelligence) { this.errorIntelligence = errorIntelligence; }
     public Instant getPreviewedAt() { return previewedAt; }
     public void setPreviewedAt(Instant previewedAt) { this.previewedAt = previewedAt; }
 }

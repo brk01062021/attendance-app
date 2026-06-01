@@ -129,10 +129,46 @@ public class WorkbookImportService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public ImportPreviewResponseDTO preview(Long uploadId, String schoolId) {
-        SchoolImportUpload upload = tenantUpload(uploadId, schoolId);
+        String normalizedSchoolId = resolveSchoolId(schoolId);
+        String previewJson = uploadRepository.findPreviewJsonForUpload(uploadId, normalizedSchoolId)
+                .orElseThrow(() -> new IllegalArgumentException("Import upload was not found for this school_id."));
+        return readPreview(previewJson);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkbookErrorIntelligenceDTO errorIntelligence(Long uploadId, String schoolId) {
+        return preview(uploadId, schoolId).getErrorIntelligence();
+    }
+
+    @Transactional(readOnly = true)
+    public WorkbookErrorIntelligenceDTO latestErrorIntelligence(String schoolId) {
+        String normalizedSchoolId = resolveSchoolId(schoolId);
+        Optional<SchoolImportUploadSummaryProjection> latestUpload = uploadRepository
+                .findUploadSummariesForSchool(normalizedSchoolId)
+                .stream()
+                .filter(upload -> !upload.isRolledBack())
+                .findFirst();
+        if (latestUpload.isEmpty()) {
+            WorkbookErrorIntelligenceDTO empty = new WorkbookErrorIntelligenceDTO();
+            empty.setSchoolId(normalizedSchoolId);
+            empty.setStatus("NO_WORKBOOK");
+            empty.setHeadline("No school data workbook has been uploaded yet.");
+            empty.setActivationBlocked(true);
+            empty.setActivationBlockers(List.of("Upload and validate the school data workbook before activation."));
+            return empty;
+        }
+        return errorIntelligence(latestUpload.get().getId(), normalizedSchoolId);
+    }
+
+    private ImportPreviewResponseDTO readPreview(String previewJson) {
         try {
-            return objectMapper.readValue(upload.getPreviewJson(), ImportPreviewResponseDTO.class);
+            ImportPreviewResponseDTO preview = objectMapper.readValue(previewJson, ImportPreviewResponseDTO.class);
+            if (preview.getErrorIntelligence() == null) {
+                preview.setErrorIntelligence(importValidationService.buildErrorIntelligence(preview));
+            }
+            return preview;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Import preview is not readable. Please upload the workbook again.");
         }
@@ -390,6 +426,7 @@ public class WorkbookImportService {
         preview.setTenantSafe(!hasErrors && TenantUtils.isValidSchoolId(preview.getSchoolId()));
         preview.setStatus(hasErrors ? "BLOCKED" : hasWarnings ? "READY_WITH_WARNINGS" : "READY_TO_IMPORT");
         preview.setSummary(buildSummary(preview));
+        preview.setErrorIntelligence(importValidationService.buildErrorIntelligence(preview));
     }
 
     private String buildSummary(ImportPreviewResponseDTO preview) {
