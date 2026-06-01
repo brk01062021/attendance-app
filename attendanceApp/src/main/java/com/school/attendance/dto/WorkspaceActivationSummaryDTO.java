@@ -14,14 +14,15 @@ public class WorkspaceActivationSummaryDTO {
     private boolean academicYearReady;
     private boolean workspaceSetupReady;
     private boolean importCommitted;
+    private boolean tenantActive;
     private boolean readyForActivation;
     private int readinessPercent;
     private int committedWorkbookCount;
     private LocalDateTime lastWorkbookCommittedAt;
-    private LocalDateTime activatedAt;
-    private String activatedBy;
     private String goLiveStatus;
-    private String nextStep;
+    private String activationButtonLabel;
+    private String activatedBy;
+    private LocalDateTime activatedAt;
     private WorkspaceChecklistDTO workspaceChecklist;
     private List<WorkspaceHealthItemDTO> healthItems = new ArrayList<>();
     private List<WorkspaceActivationAuditDTO> auditTrail = new ArrayList<>();
@@ -44,6 +45,8 @@ public class WorkspaceActivationSummaryDTO {
     public void setWorkspaceSetupReady(boolean workspaceSetupReady) { this.workspaceSetupReady = workspaceSetupReady; }
     public boolean isImportCommitted() { return importCommitted; }
     public void setImportCommitted(boolean importCommitted) { this.importCommitted = importCommitted; }
+    public boolean isTenantActive() { return tenantActive; }
+    public void setTenantActive(boolean tenantActive) { this.tenantActive = tenantActive; }
     public boolean isReadyForActivation() { return readyForActivation; }
     public void setReadyForActivation(boolean readyForActivation) { this.readyForActivation = readyForActivation; }
     public int getReadinessPercent() { return readinessPercent; }
@@ -52,14 +55,14 @@ public class WorkspaceActivationSummaryDTO {
     public void setCommittedWorkbookCount(int committedWorkbookCount) { this.committedWorkbookCount = committedWorkbookCount; }
     public LocalDateTime getLastWorkbookCommittedAt() { return lastWorkbookCommittedAt; }
     public void setLastWorkbookCommittedAt(LocalDateTime lastWorkbookCommittedAt) { this.lastWorkbookCommittedAt = lastWorkbookCommittedAt; }
-    public LocalDateTime getActivatedAt() { return activatedAt; }
-    public void setActivatedAt(LocalDateTime activatedAt) { this.activatedAt = activatedAt; }
-    public String getActivatedBy() { return activatedBy; }
-    public void setActivatedBy(String activatedBy) { this.activatedBy = activatedBy; }
     public String getGoLiveStatus() { return goLiveStatus; }
     public void setGoLiveStatus(String goLiveStatus) { this.goLiveStatus = goLiveStatus; }
-    public String getNextStep() { return nextStep; }
-    public void setNextStep(String nextStep) { this.nextStep = nextStep; }
+    public String getActivationButtonLabel() { return activationButtonLabel; }
+    public void setActivationButtonLabel(String activationButtonLabel) { this.activationButtonLabel = activationButtonLabel; }
+    public String getActivatedBy() { return activatedBy; }
+    public void setActivatedBy(String activatedBy) { this.activatedBy = activatedBy; }
+    public LocalDateTime getActivatedAt() { return activatedAt; }
+    public void setActivatedAt(LocalDateTime activatedAt) { this.activatedAt = activatedAt; }
     public WorkspaceChecklistDTO getWorkspaceChecklist() { return workspaceChecklist; }
     public void setWorkspaceChecklist(WorkspaceChecklistDTO workspaceChecklist) { this.workspaceChecklist = workspaceChecklist; }
     public List<WorkspaceHealthItemDTO> getHealthItems() { return healthItems; }
