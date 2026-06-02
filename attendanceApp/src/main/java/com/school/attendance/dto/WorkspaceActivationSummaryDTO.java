@@ -21,6 +21,12 @@ public class WorkspaceActivationSummaryDTO {
     private LocalDateTime lastWorkbookCommittedAt;
     private String goLiveStatus;
     private String activationButtonLabel;
+    private String activationStage;
+    private String tenantLifecycleStatus;
+    private String credentialProvisioningStatus;
+    private String activationSuccessTitle;
+    private String activationSuccessMessage;
+    private List<String> activationNotifications = new ArrayList<>();
     private String activatedBy;
     private LocalDateTime activatedAt;
     private WorkspaceChecklistDTO workspaceChecklist;
@@ -59,6 +65,18 @@ public class WorkspaceActivationSummaryDTO {
     public void setGoLiveStatus(String goLiveStatus) { this.goLiveStatus = goLiveStatus; }
     public String getActivationButtonLabel() { return activationButtonLabel; }
     public void setActivationButtonLabel(String activationButtonLabel) { this.activationButtonLabel = activationButtonLabel; }
+    public String getActivationStage() { return activationStage; }
+    public void setActivationStage(String activationStage) { this.activationStage = activationStage; }
+    public String getTenantLifecycleStatus() { return tenantLifecycleStatus; }
+    public void setTenantLifecycleStatus(String tenantLifecycleStatus) { this.tenantLifecycleStatus = tenantLifecycleStatus; }
+    public String getCredentialProvisioningStatus() { return credentialProvisioningStatus; }
+    public void setCredentialProvisioningStatus(String credentialProvisioningStatus) { this.credentialProvisioningStatus = credentialProvisioningStatus; }
+    public String getActivationSuccessTitle() { return activationSuccessTitle; }
+    public void setActivationSuccessTitle(String activationSuccessTitle) { this.activationSuccessTitle = activationSuccessTitle; }
+    public String getActivationSuccessMessage() { return activationSuccessMessage; }
+    public void setActivationSuccessMessage(String activationSuccessMessage) { this.activationSuccessMessage = activationSuccessMessage; }
+    public List<String> getActivationNotifications() { return activationNotifications; }
+    public void setActivationNotifications(List<String> activationNotifications) { this.activationNotifications = activationNotifications; }
     public String getActivatedBy() { return activatedBy; }
     public void setActivatedBy(String activatedBy) { this.activatedBy = activatedBy; }
     public LocalDateTime getActivatedAt() { return activatedAt; }

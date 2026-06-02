@@ -40,9 +40,9 @@ public class WorkspaceActivationController {
         return ApiResponse.success("Workbook error intelligence loaded", workbookImportService.latestErrorIntelligence(schoolId));
     }
 
-    @GetMapping("/audit-trail")
+    @GetMapping({"/audit-trail", "/activation-events"})
     public ApiResponse<List<WorkspaceActivationAuditDTO>> auditTrail(@RequestParam String schoolId) {
-        return ApiResponse.success("Workspace activation audit trail loaded", service.getSummary(schoolId).getAuditTrail());
+        return ApiResponse.success("Workspace activation events loaded", service.getSummary(schoolId).getAuditTrail());
     }
 
     @GetMapping("/health-items")

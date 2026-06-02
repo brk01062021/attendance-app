@@ -75,18 +75,15 @@ public class WorkspaceActivationService {
         String actor = clean(request == null ? null : request.getActivatedBy(), "VidyaSetu Onboarding Team");
         String remarks = clean(request == null ? null : request.getRemarks(), "Workspace activated after all readiness gates passed.");
 
+        String previousStatus = onboarding == null ? "READY_FOR_ACTIVATION" : clean(onboarding.getStatus(), "PENDING").toUpperCase(Locale.ROOT);
         if (onboarding != null) {
-            onboarding.setStatus("ACTIVE");
-            onboarding.setActivatedAt(now);
-            onboarding.setActivatedBy(actor);
-            onboarding.setUpdatedAt(now);
-            onboardingRepository.save(onboarding);
+            transitionOnboardingToActive(onboarding, actor, remarks, now);
         }
 
         WorkspaceActivationSummaryDTO summary = buildSummary(tenantId, new WorkspaceActivationAuditDTO(
                 "TENANT_STATUS",
-                "Tenant status transitioned to ACTIVE",
-                remarks,
+                "Tenant status transitioned " + previousStatus + " → ACTIVE",
+                remarks + " Activation engine completed the approved lifecycle path: PENDING → APPROVED → PILOT → ACTIVE.",
                 "ACTIVE",
                 now
         ));
@@ -112,7 +109,9 @@ public class WorkspaceActivationService {
         boolean workspaceSetupReady = !checklist.isImportLocked();
         boolean importCommitted = !committed.isEmpty();
         boolean readyForActivation = schoolProfileReady && academicYearReady && workspaceSetupReady && importCommitted;
-        boolean tenantActive = readyForActivation && onboarding.map(item -> "ACTIVE".equalsIgnoreCase(item.getStatus())).orElse(false);
+        String registrationLifecycleStatus = onboarding.map(item -> clean(item.getStatus(), "PENDING").toUpperCase(Locale.ROOT)).orElse("PENDING");
+        boolean tenantActive = readyForActivation && ("ACTIVE".equalsIgnoreCase(registrationLifecycleStatus) || isSystemTenant(tenantId));
+        String lifecycleStatus = resolveTenantLifecycleStatus(importCommitted, tenantActive, registrationLifecycleStatus);
 
         WorkspaceActivationSummaryDTO summary = new WorkspaceActivationSummaryDTO();
         summary.setSchoolId(tenantId);
@@ -140,9 +139,19 @@ public class WorkspaceActivationService {
 
         String status = resolveStatus(readyForActivation, tenantActive, importCommitted, workspaceSetupReady);
         summary.setActivationStatus(status);
-        summary.setGoLiveStatus(tenantActive ? "LIVE_READY" : "NOT_READY");
+        summary.setGoLiveStatus(tenantActive ? "LIVE_READY" : readyForActivation ? "READY_FOR_GO_LIVE" : "NOT_READY");
         summary.setActivationButtonLabel(buttonLabel(status));
         summary.setActivationMessage(message(status));
+        summary.setTenantLifecycleStatus(lifecycleStatus);
+        summary.setActivationStage(resolveActivationStage(status, lifecycleStatus));
+        summary.setCredentialProvisioningStatus(resolveCredentialStatus(onboarding.orElse(null), tenantActive));
+        summary.setActivationSuccessTitle(tenantActive ? "School Workspace Activated" : readyForActivation ? "Ready for School Activation" : "Activation Readiness Pending");
+        summary.setActivationSuccessMessage(tenantActive
+                ? "Tenant status is ACTIVE. Admin and Principal login access is enabled for live ERP operations."
+                : readyForActivation
+                  ? "All readiness gates passed. Activate Workspace will complete the PENDING → APPROVED → PILOT → ACTIVE lifecycle."
+                  : message(status));
+        summary.setActivationNotifications(buildNotifications(tenantId, status, lifecycleStatus, tenantActive, readyForActivation, committed.size()));
         summary.setHealthItems(List.of(
                 health("SCHOOL_PROFILE", "School Profile", schoolProfileReady, schoolProfileReady ? "School identity is configured." : "Add school name and profile details."),
                 health("ACADEMIC_YEAR", "Academic Year", academicYearReady, academicYearReady ? "Academic year dates are configured." : "Activate the academic year with start and end dates."),
@@ -153,6 +162,73 @@ public class WorkspaceActivationService {
         ));
         summary.setAuditTrail(buildAuditTrail(checklist, uploads, readyForActivation, tenantActive, onboarding.orElse(null), activationEvent));
         return summary;
+    }
+
+    private void transitionOnboardingToActive(SchoolOnboardingRequest onboarding, String actor, String remarks, LocalDateTime now) {
+        String currentStatus = clean(onboarding.getStatus(), "PENDING").toUpperCase(Locale.ROOT);
+        if ("REJECTED".equals(currentStatus)) {
+            throw new IllegalStateException("Rejected school registrations cannot be activated. Reopen or create a new registration request first.");
+        }
+        if (onboarding.getApprovedAt() == null) {
+            onboarding.setApprovedAt(now);
+            onboarding.setApprovedBy(actor);
+        }
+        if (onboarding.getPilotActivatedAt() == null) {
+            onboarding.setPilotActivatedAt(now);
+            onboarding.setPilotEnabledBy(actor);
+        }
+        onboarding.setStatus("ACTIVE");
+        onboarding.setActivatedAt(now);
+        onboarding.setActivatedBy(actor);
+        onboarding.setReviewNotes(remarks);
+        onboarding.setUpdatedAt(now);
+        onboardingRepository.save(onboarding);
+    }
+
+    private boolean isSystemTenant(String tenantId) {
+        return "BRK1".equalsIgnoreCase(tenantId) || "DEMO".equalsIgnoreCase(tenantId);
+    }
+
+    private String resolveTenantLifecycleStatus(boolean importCommitted, boolean tenantActive, String registrationLifecycleStatus) {
+        if (tenantActive) return "ACTIVE";
+        if (importCommitted) return "PILOT";
+        if ("APPROVED".equalsIgnoreCase(registrationLifecycleStatus)) return "APPROVED";
+        return "PENDING";
+    }
+
+    private String resolveActivationStage(String status, String lifecycleStatus) {
+        if ("ACTIVE".equals(status)) return "ACTIVE_GO_LIVE";
+        if ("READY_FOR_ACTIVATION".equals(status)) return "READY_TO_ACTIVATE";
+        if ("PILOT".equalsIgnoreCase(lifecycleStatus)) return "PILOT_VALIDATION";
+        if ("APPROVED".equalsIgnoreCase(lifecycleStatus)) return "APPROVED_WORKSPACE_SETUP";
+        if ("PENDING_WORKBOOK_COMMIT".equals(status)) return "WORKBOOK_COMMIT_PENDING";
+        if ("PENDING_WORKSPACE_SETUP".equals(status)) return "WORKSPACE_SETUP_PENDING";
+        return "CONFIGURATION_PENDING";
+    }
+
+    private String resolveCredentialStatus(SchoolOnboardingRequest onboarding, boolean tenantActive) {
+        if (!tenantActive) return "LOCKED_UNTIL_ACTIVE";
+        if (onboarding == null) return "SYSTEM_TENANT";
+        boolean adminReady = notBlank(onboarding.getAdminUsername());
+        boolean principalReady = notBlank(onboarding.getPrincipalUsername());
+        return adminReady && principalReady ? "ISSUED" : "READY_TO_ISSUE";
+    }
+
+    private List<String> buildNotifications(String tenantId, String status, String lifecycleStatus, boolean tenantActive, boolean readyForActivation, int committedWorkbookCount) {
+        List<String> notifications = new java.util.ArrayList<>();
+        notifications.add("Requests are securely bound to School ID: " + tenantId);
+        notifications.add("Tenant lifecycle status: " + lifecycleStatus);
+        if (tenantActive) {
+            notifications.add("Activation completed. School workspace is live ready for Admin and Principal operations.");
+            notifications.add("Credentials can be issued or regenerated from the activation package workflow when required.");
+        } else if (readyForActivation) {
+            notifications.add("All readiness gates passed. Activate Workspace is now available.");
+        } else if ("PENDING_WORKBOOK_COMMIT".equals(status)) {
+            notifications.add("Workbook commit is required before activation. Committed workbook count: " + committedWorkbookCount);
+        } else {
+            notifications.add("Complete Workspace Setup and committed workbook import before activation.");
+        }
+        return notifications;
     }
 
     private String resolveStatus(boolean readyForActivation, boolean tenantActive, boolean importCommitted, boolean workspaceSetupReady) {
