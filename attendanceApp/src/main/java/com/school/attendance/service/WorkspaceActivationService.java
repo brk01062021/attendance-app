@@ -149,7 +149,7 @@ public class WorkspaceActivationService {
                 health("WORKSPACE_SETUP", "Workspace Setup", workspaceSetupReady, workspaceSetupReady ? "Workspace checklist is complete." : checklist.getImportLockMessage()),
                 health("WORKBOOK_IMPORT", "School Data Workbook", importCommitted, importCommitted ? "Validated workbook has been committed." : "Upload, validate, and commit the workbook from Web ERP."),
                 health("GO_LIVE_STATUS", "Go-Live Status", tenantActive, tenantActive ? "School workspace is active for live ERP operations." : "Go-live is blocked until workbook commit and activation are completed."),
-                health("TENANT_ISOLATION", "Tenant Isolation", true, "Requests are bound to school_id " + tenantId + ".")
+                health("TENANT_ISOLATION", "Tenant Isolation", true, "Requests are securely bound to School ID: " + tenantId)
         ));
         summary.setAuditTrail(buildAuditTrail(checklist, uploads, readyForActivation, tenantActive, onboarding.orElse(null), activationEvent));
         return summary;
