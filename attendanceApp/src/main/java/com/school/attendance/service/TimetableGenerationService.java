@@ -3,6 +3,9 @@ package com.school.attendance.service;
 import com.school.attendance.dto.AcademicRuleDTO;
 import com.school.attendance.dto.AcademicRulesSummaryDTO;
 import com.school.attendance.dto.ClassTeacherPoolDTO;
+import com.school.attendance.dto.ExistingTimetableImportIssueDTO;
+import com.school.attendance.dto.ExistingTimetableImportResponseDTO;
+import com.school.attendance.dto.ExistingTimetableImportRowDTO;
 import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
 import com.school.attendance.dto.TimetableClassSectionReviewDTO;
 import com.school.attendance.dto.TimetableConflictDTO;
@@ -23,7 +26,15 @@ import com.school.attendance.dto.TimetableLiveResponseDTO;
 import com.school.attendance.dto.TimetableNotificationDTO;
 import com.school.attendance.dto.TimetableVersionDTO;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -56,6 +67,7 @@ public class TimetableGenerationService {
     private final Map<String, List<TimetableVersionDTO>> versionHistory = new ConcurrentHashMap<>();
     private final Map<String, List<TimetableNotificationDTO>> timetableNotifications = new ConcurrentHashMap<>();
     private final Map<String, TimetableArchiveSummaryDTO> archiveHistory = new ConcurrentHashMap<>();
+    private final Map<String, ExistingTimetableImportResponseDTO> existingTimetableImports = new ConcurrentHashMap<>();
     private volatile String latestBatchId;
     private volatile String latestPublishedBatchId;
 
@@ -777,7 +789,10 @@ public class TimetableGenerationService {
         }
         filtered.sort(Comparator.comparing(TimetableEntryDTO::getDayOfWeek).thenComparing(TimetableEntryDTO::getPeriodNumber));
         String scope = "ADMIN".equals(safeRole) || "PRINCIPAL".equals(safeRole) ? "WHOLE_SCHOOL" : safeRole;
-        String message = published ? "Live published timetable loaded." : "Draft timetable loaded for validation. Publish and lock before parent/student rollout.";
+        if (!isAdminRole(safeRole) && !published) {
+            return new TimetableLiveResponseDTO(batch.getGeneratedBatchId(), safeRole, scope, false, false, "Timetable is not published yet. Draft timetables are hidden for Teacher, Student, and Parent roles.", List.of());
+        }
+        String message = published ? "Latest published timetable loaded for " + safeRole + "." : "Draft timetable loaded for Admin/Principal validation. Publish and lock before Teacher/Student/Parent rollout.";
         return new TimetableLiveResponseDTO(batch.getGeneratedBatchId(), safeRole, scope, published, Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId())), message, filtered);
     }
 
@@ -900,6 +915,210 @@ public class TimetableGenerationService {
         status.put("entries", batch.getEntries().size());
         status.put("conflicts", batch.getConflictsDetected());
         return status;
+    }
+
+
+    public ExistingTimetableImportResponseDTO importExistingTimetable(MultipartFile file, String schoolId, String uploadedBy) {
+        String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        List<ExistingTimetableImportIssueDTO> issues = new ArrayList<>();
+        List<ExistingTimetableImportRowDTO> rows = new ArrayList<>();
+        if (file == null || file.isEmpty()) {
+            issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "file", "Please upload an Excel .xlsx file with Class, Section, Day, Period, Subject, Teacher columns."));
+            return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
+        }
+        try (InputStream inputStream = file.getInputStream(); Workbook workbook = new XSSFWorkbook(inputStream)) {
+            Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
+            if (sheet == null) {
+                issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "sheet", "Excel workbook does not contain a timetable sheet."));
+                return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
+            }
+            DataFormatter formatter = new DataFormatter();
+            Map<String, Integer> headers = readHeaders(sheet.getRow(0), formatter);
+            List<String> required = List.of("class", "section", "day", "period", "subject", "teacher");
+            for (String requiredHeader : required) {
+                if (!headers.containsKey(requiredHeader)) {
+                    issues.add(new ExistingTimetableImportIssueDTO(1, "ERROR", requiredHeader, "Missing required column: " + titleCase(requiredHeader)));
+                }
+            }
+            if (!issues.isEmpty()) return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
+            for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+                Row row = sheet.getRow(rowIndex);
+                if (row == null) continue;
+                ExistingTimetableImportRowDTO dto = new ExistingTimetableImportRowDTO(
+                        cleanCell(row, headers.get("class"), formatter),
+                        cleanCell(row, headers.get("section"), formatter),
+                        normalizeDay(cleanCell(row, headers.get("day"), formatter)),
+                        parsePeriod(cleanCell(row, headers.get("period"), formatter)),
+                        cleanCell(row, headers.get("subject"), formatter),
+                        cleanCell(row, headers.get("teacher"), formatter)
+                );
+                if (isBlank(dto.getClassName()) && isBlank(dto.getSection()) && isBlank(dto.getDay()) && dto.getPeriod() == null && isBlank(dto.getSubject()) && isBlank(dto.getTeacher())) continue;
+                validateImportRow(dto, rowIndex + 1, issues);
+                rows.add(dto);
+            }
+        } catch (Exception ex) {
+            issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "file", "Unable to read the Excel timetable file. Please upload a valid .xlsx workbook."));
+        }
+        List<TimetableEntryDTO> entries = buildImportedEntries(rows);
+        TimetableGenerationRequestDTO request = new TimetableGenerationRequestDTO();
+        request.setPreventConsecutiveLabsEnabled(false);
+        List<TimetableConflictDTO> conflicts = detectConflicts(entries, request);
+        conflicts.forEach(conflict -> issues.add(new ExistingTimetableImportIssueDTO(conflict.getPeriodNumber(), "ERROR", "conflict", conflict.getTitle() + " - " + conflict.getDescription())));
+        String importBatchId = "IMP-TT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        ExistingTimetableImportResponseDTO response = buildImportResponse(importBatchId, safeSchoolId, rows, issues, conflicts, conflicts.isEmpty() && issues.stream().noneMatch(i -> "ERROR".equalsIgnoreCase(i.getSeverity())) ? "VALIDATED" : "VALIDATION_FAILED", entries);
+        existingTimetableImports.put(importBatchId, response);
+        if (Boolean.TRUE.equals(response.getCanPublish())) {
+            TimetableGenerationResponseDTO batch = new TimetableGenerationResponseDTO();
+            batch.setGeneratedBatchId(importBatchId);
+            batch.setEntries(entries);
+            refreshBatch(batch);
+            generatedBatches.put(importBatchId, batch);
+            latestBatchId = importBatchId;
+            addVersion(importBatchId, isBlank(uploadedBy) ? "ADMIN" : uploadedBy, "EXISTING_TIMETABLE_IMPORTED", entries.size(), "Existing school timetable imported from Excel and converted into VidyaSetu timetable format.");
+            addNotification(importBatchId, "ADMIN_PRINCIPAL", "Existing timetable validated", "Imported timetable is ready for Admin/Principal preview and publish.");
+        }
+        return response;
+    }
+
+    public ExistingTimetableImportResponseDTO publishImportedTimetable(String importBatchId, String role, String approvedBy) {
+        ExistingTimetableImportResponseDTO response = existingTimetableImports.get(importBatchId);
+        if (response == null) {
+            ExistingTimetableImportResponseDTO missing = new ExistingTimetableImportResponseDTO();
+            missing.setImportBatchId(importBatchId);
+            missing.setStatus("NOT_FOUND");
+            missing.setValid(false);
+            missing.setCanPublish(false);
+            missing.setMessage("Imported timetable batch was not found. Please upload and validate the Excel timetable again.");
+            return missing;
+        }
+        if (!isAdminRole(role)) {
+            response.setStatus("RBAC_DENIED");
+            response.setMessage("Only Admin or Principal can publish an imported timetable.");
+            return response;
+        }
+        if (!Boolean.TRUE.equals(response.getCanPublish())) {
+            response.setStatus("PUBLISH_BLOCKED");
+            response.setMessage("Imported timetable has validation errors or conflicts. Fix them before publishing.");
+            return response;
+        }
+        TimetablePublishResponseDTO publish = publishLock(importBatchId, role, approvedBy);
+        response.setPublishedBatchId(publish.getBatchId());
+        response.setStatus(Boolean.TRUE.equals(publish.getSuccess()) ? "PUBLISHED" : "PUBLISH_BLOCKED");
+        response.setMessage(publish.getMessage());
+        addNotification(importBatchId, "TEACHER", "Timetable Published", "Your latest teaching timetable is now available in My Timetable.");
+        addNotification(importBatchId, "STUDENT", "Timetable Published", "Your latest class schedule is now available.");
+        addNotification(importBatchId, "PARENT", "Timetable Published", "Your child\'s latest timetable is now available.");
+        return response;
+    }
+
+    public List<TimetableNotificationDTO> roleNotifications(String role) {
+        String safeRole = isBlank(role) ? "ADMIN_PRINCIPAL" : role.trim().toUpperCase();
+        if (latestPublishedBatchId == null) return List.of();
+        return notifications(latestPublishedBatchId).stream()
+                .filter(n -> "ALL".equalsIgnoreCase(n.getAudience()) || safeRole.equalsIgnoreCase(n.getAudience()) || (isAdminRole(safeRole) && "ADMIN_PRINCIPAL".equalsIgnoreCase(n.getAudience())))
+                .toList();
+    }
+
+    private ExistingTimetableImportResponseDTO buildImportResponse(String importBatchId, String schoolId, List<ExistingTimetableImportRowDTO> rows, List<ExistingTimetableImportIssueDTO> issues, List<TimetableConflictDTO> conflicts, String status, List<TimetableEntryDTO> entries) {
+        int errors = (int) issues.stream().filter(i -> "ERROR".equalsIgnoreCase(i.getSeverity())).count();
+        int warnings = (int) issues.stream().filter(i -> "WARNING".equalsIgnoreCase(i.getSeverity())).count();
+        ExistingTimetableImportResponseDTO response = new ExistingTimetableImportResponseDTO();
+        response.setImportBatchId(importBatchId);
+        response.setSchoolId(schoolId);
+        response.setStatus(status);
+        response.setRows(rows);
+        response.setIssues(issues);
+        response.setConflicts(conflicts);
+        response.setPreviewEntries(entries == null ? List.of() : entries);
+        response.setTotalRows(rows.size());
+        response.setAcceptedRows(entries == null ? 0 : entries.size());
+        response.setErrorCount(errors);
+        response.setWarningCount(warnings);
+        response.setConflictsDetected(conflicts == null ? 0 : conflicts.size());
+        response.setValid(errors == 0 && (conflicts == null || conflicts.isEmpty()) && !rows.isEmpty());
+        response.setCanPublish(Boolean.TRUE.equals(response.getValid()));
+        response.setMessage(Boolean.TRUE.equals(response.getValid()) ? "Existing timetable validated and converted into VidyaSetu timetable format. Review preview, then publish." : "Existing timetable needs correction before publish.");
+        return response;
+    }
+
+    private Map<String, Integer> readHeaders(Row headerRow, DataFormatter formatter) {
+        Map<String, Integer> headers = new LinkedHashMap<>();
+        if (headerRow == null) return headers;
+        for (Cell cell : headerRow) {
+            String key = formatter.formatCellValue(cell).trim().toLowerCase().replace(" ", "");
+            if ("classname".equals(key)) key = "class";
+            if ("dayofweek".equals(key)) key = "day";
+            if ("periodnumber".equals(key)) key = "period";
+            if ("subjectname".equals(key)) key = "subject";
+            if ("teachername".equals(key)) key = "teacher";
+            headers.put(key, cell.getColumnIndex());
+        }
+        return headers;
+    }
+
+    private String cleanCell(Row row, Integer index, DataFormatter formatter) {
+        if (row == null || index == null) return "";
+        return formatter.formatCellValue(row.getCell(index)).trim();
+    }
+
+    private Integer parsePeriod(String value) {
+        if (isBlank(value)) return null;
+        try { return (int) Math.round(Double.parseDouble(value.replaceAll("[^0-9.]", ""))); } catch (Exception ignored) { return null; }
+    }
+
+    private void validateImportRow(ExistingTimetableImportRowDTO row, int rowNumber, List<ExistingTimetableImportIssueDTO> issues) {
+        if (isBlank(row.getClassName())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Class", "Class is required."));
+        if (isBlank(row.getSection())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Section", "Section is required."));
+        if (isBlank(row.getDay()) || !DAYS.contains(row.getDay())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Day", "Day must be Monday to Saturday."));
+        if (row.getPeriod() == null || row.getPeriod() < 1 || row.getPeriod() > 12) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Period", "Period must be a number between 1 and 12."));
+        if (isBlank(row.getSubject())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Subject", "Subject is required."));
+        if (isBlank(row.getTeacher())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Teacher", "Teacher is required."));
+    }
+
+    private List<TimetableEntryDTO> buildImportedEntries(List<ExistingTimetableImportRowDTO> rows) {
+        List<TimetableEntryDTO> entries = new ArrayList<>();
+        int sequence = 1;
+        for (ExistingTimetableImportRowDTO row : rows) {
+            if (isBlank(row.getClassName()) || isBlank(row.getSection()) || isBlank(row.getDay()) || row.getPeriod() == null || isBlank(row.getSubject()) || isBlank(row.getTeacher())) continue;
+            LocalTime start = LocalTime.of(9, 0).plusMinutes((long) (row.getPeriod() - 1) * 45);
+            entries.add(new TimetableEntryDTO(
+                    "IMP-" + sequence++,
+                    row.getClassName().trim(),
+                    row.getSection().trim().toUpperCase(),
+                    row.getSubject().trim(),
+                    stableTeacherId(row.getTeacher()),
+                    row.getTeacher().trim(),
+                    row.getDay(),
+                    row.getPeriod(),
+                    "R-" + row.getClassName().trim() + row.getSection().trim().toUpperCase(),
+                    start.format(TIME_FORMATTER),
+                    start.plusMinutes(40).format(TIME_FORMATTER),
+                    row.getSubject().toLowerCase().contains("lab") || row.getSubject().toLowerCase().contains("computer"),
+                    row.getSubject().toLowerCase().contains("sport"),
+                    false
+            ));
+        }
+        return entries;
+    }
+
+    private Long stableTeacherId(String teacherName) {
+        return 1000L + Math.abs((long) teacherName.trim().toLowerCase().hashCode() % 9000L);
+    }
+
+    private String normalizeDay(String value) {
+        if (isBlank(value)) return "";
+        String v = value.trim().toUpperCase();
+        if (v.startsWith("MON")) return "MONDAY";
+        if (v.startsWith("TUE")) return "TUESDAY";
+        if (v.startsWith("WED")) return "WEDNESDAY";
+        if (v.startsWith("THU")) return "THURSDAY";
+        if (v.startsWith("FRI")) return "FRIDAY";
+        if (v.startsWith("SAT")) return "SATURDAY";
+        return v;
+    }
+
+    private String titleCase(String value) {
+        return value == null || value.isBlank() ? "" : value.substring(0, 1).toUpperCase() + value.substring(1);
     }
 
 

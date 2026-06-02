@@ -3,6 +3,7 @@ package com.school.attendance.controller;
 import com.school.attendance.dto.AcademicRuleDTO;
 import com.school.attendance.dto.AcademicRulesSummaryDTO;
 import com.school.attendance.dto.ClassTeacherPoolDTO;
+import com.school.attendance.dto.ExistingTimetableImportResponseDTO;
 import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
 import com.school.attendance.dto.TimetableConflictDTO;
 import com.school.attendance.dto.TimetableGenerationRequestDTO;
@@ -29,6 +30,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -214,6 +218,38 @@ public class TimetableGenerationController {
     @GetMapping({"/day18/archives", "/operations/archives"})
     public List<TimetableArchiveSummaryDTO> archives() {
         return timetableGenerationService.archives();
+    }
+
+    @PostMapping({"/import-existing/preview", "/operations/import-existing"})
+    public ExistingTimetableImportResponseDTO importExistingTimetablePreview(
+            @RequestPart("file") MultipartFile file,
+            @RequestHeader(value = "X-School-Id", required = false) String headerSchoolId,
+            @RequestParam(required = false) String schoolId,
+            @RequestParam(required = false) String uploadedBy,
+            @RequestParam(defaultValue = "false") boolean publish,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestParam(required = false) String approvedBy
+    ) {
+        String effectiveSchoolId = schoolId != null && !schoolId.isBlank() ? schoolId : headerSchoolId;
+        ExistingTimetableImportResponseDTO response = timetableGenerationService.importExistingTimetable(file, effectiveSchoolId, uploadedBy);
+        if (publish && Boolean.TRUE.equals(response.getCanPublish())) {
+            return timetableGenerationService.publishImportedTimetable(response.getImportBatchId(), role, approvedBy);
+        }
+        return response;
+    }
+
+    @PostMapping("/import-existing/publish/{importBatchId}")
+    public ExistingTimetableImportResponseDTO publishImportedTimetable(
+            @PathVariable String importBatchId,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestParam(required = false) String approvedBy
+    ) {
+        return timetableGenerationService.publishImportedTimetable(importBatchId, role, approvedBy);
+    }
+
+    @GetMapping("/role-notifications")
+    public List<TimetableNotificationDTO> roleNotifications(@RequestParam(defaultValue = "TEACHER") String role) {
+        return timetableGenerationService.roleNotifications(role);
     }
 
 
