@@ -777,17 +777,28 @@ public class TimetableGenerationService {
 
 
     public TimetableLiveResponseDTO liveTimetable(String batchId, String role, Long teacherId, String className, String section) {
+        return liveTimetable(batchId, role, teacherId, null, className, section);
+    }
+
+    public TimetableLiveResponseDTO liveTimetable(String batchId, String role, Long teacherId, String teacherName, String className, String section) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(isBlank(batchId) ? latestPublishedBatchId : batchId);
         refreshBatch(batch);
         String safeRole = isBlank(role) ? "ADMIN" : role.trim().toUpperCase();
         boolean published = batch.getGeneratedBatchId().equals(latestPublishedBatchId) || Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
         List<TimetableEntryDTO> filtered = new ArrayList<>(batch.getEntries());
-        if ("TEACHER".equals(safeRole) && teacherId != null) {
-            filtered = filtered.stream().filter(e -> teacherId.equals(e.getTeacherId())).collect(Collectors.toList());
+        if ("TEACHER".equals(safeRole)) {
+            if (teacherId != null) {
+                filtered = filtered.stream().filter(e -> teacherId.equals(e.getTeacherId())).collect(Collectors.toList());
+            } else if (!isBlank(teacherName)) {
+                String safeTeacherName = teacherName.trim();
+                filtered = filtered.stream()
+                        .filter(e -> !isBlank(e.getTeacherName()) && safeTeacherName.equalsIgnoreCase(e.getTeacherName().trim()))
+                        .collect(Collectors.toList());
+            }
         } else if (("STUDENT".equals(safeRole) || "PARENT".equals(safeRole)) && !isBlank(className) && !isBlank(section)) {
             filtered = filtered.stream().filter(e -> className.equalsIgnoreCase(e.getClassName()) && section.equalsIgnoreCase(e.getSection())).collect(Collectors.toList());
         }
-        filtered.sort(Comparator.comparing(TimetableEntryDTO::getDayOfWeek).thenComparing(TimetableEntryDTO::getPeriodNumber));
+        filtered.sort(Comparator.comparing(TimetableEntryDTO::getDayOfWeek, Comparator.nullsLast(String::compareToIgnoreCase)).thenComparing(TimetableEntryDTO::getPeriodNumber, Comparator.nullsLast(Integer::compareTo)));
         String scope = "ADMIN".equals(safeRole) || "PRINCIPAL".equals(safeRole) ? "WHOLE_SCHOOL" : safeRole;
         if (!isAdminRole(safeRole) && !published) {
             return new TimetableLiveResponseDTO(batch.getGeneratedBatchId(), safeRole, scope, false, false, "Timetable is not published yet. Draft timetables are hidden for Teacher, Student, and Parent roles.", List.of());

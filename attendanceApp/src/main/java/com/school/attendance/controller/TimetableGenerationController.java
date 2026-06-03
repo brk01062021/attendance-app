@@ -97,7 +97,7 @@ public class TimetableGenerationController {
         return timetableGenerationService.workloadAnalysis(batchId);
     }
 
-    @PostMapping({"/repair/{batchId}", "/auto-repair/{batchId}"})
+    @PostMapping({"/repair/{batchId}", "/auto-repair/{batchId}", "/operations/repair/{batchId}", "/operations/auto-repair/{batchId}"})
     public TimetableRepairResultDTO repair(@PathVariable String batchId) {
         return timetableGenerationService.repair(batchId);
     }
@@ -159,15 +159,56 @@ public class TimetableGenerationController {
         return timetableGenerationService.principalIntelligence(batchId);
     }
 
-    @GetMapping({"/day18/live", "/operations/live"})
+    @GetMapping({"/day18/live", "/operations/live", "/visibility/live"})
     public TimetableLiveResponseDTO liveTimetable(
             @RequestParam(required = false) String batchId,
             @RequestParam(defaultValue = "ADMIN") String role,
             @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) String teacherName,
             @RequestParam(required = false) String className,
-            @RequestParam(required = false) String section
+            @RequestParam(required = false) String section,
+            @RequestHeader(value = "X-School-Id", required = false) String schoolId
     ) {
-        return timetableGenerationService.liveTimetable(batchId, role, teacherId, className, section);
+        return timetableGenerationService.liveTimetable(batchId, role, teacherId, teacherName, className, section);
+    }
+
+    @GetMapping("/live/teacher")
+    public TimetableLiveResponseDTO liveTeacherTimetable(
+            @RequestParam(required = false) String batchId,
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) String teacherName,
+            @RequestHeader(value = "X-School-Id", required = false) String schoolId
+    ) {
+        return timetableGenerationService.liveTimetable(batchId, "TEACHER", teacherId, teacherName, null, null);
+    }
+
+    @GetMapping("/live/student")
+    public TimetableLiveResponseDTO liveStudentTimetable(
+            @RequestParam(required = false) String batchId,
+            @RequestParam(required = false) String className,
+            @RequestParam(required = false) String section,
+            @RequestHeader(value = "X-School-Id", required = false) String schoolId
+    ) {
+        return timetableGenerationService.liveTimetable(batchId, "STUDENT", null, null, className, section);
+    }
+
+    @GetMapping("/live/parent")
+    public TimetableLiveResponseDTO liveParentTimetable(
+            @RequestParam(required = false) String batchId,
+            @RequestParam(required = false) String className,
+            @RequestParam(required = false) String section,
+            @RequestHeader(value = "X-School-Id", required = false) String schoolId
+    ) {
+        return timetableGenerationService.liveTimetable(batchId, "PARENT", null, null, className, section);
+    }
+
+    @PostMapping({"/operations/publish/{batchId}", "/visibility/publish/{batchId}"})
+    public TimetablePublishResponseDTO publishOperationsPath(
+            @PathVariable String batchId,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestParam(required = false) String approvedBy
+    ) {
+        return timetableGenerationService.publishLock(batchId, role, approvedBy);
     }
 
     @PostMapping({"/day18/publish-lock/{batchId}", "/operations/publish-lock/{batchId}"})
@@ -247,8 +288,11 @@ public class TimetableGenerationController {
         return timetableGenerationService.publishImportedTimetable(importBatchId, role, approvedBy);
     }
 
-    @GetMapping("/role-notifications")
-    public List<TimetableNotificationDTO> roleNotifications(@RequestParam(defaultValue = "TEACHER") String role) {
+    @GetMapping({"/role-notifications", "/visibility/role-notifications"})
+    public List<TimetableNotificationDTO> roleNotifications(
+            @RequestParam(defaultValue = "TEACHER") String role,
+            @RequestHeader(value = "X-School-Id", required = false) String schoolId
+    ) {
         return timetableGenerationService.roleNotifications(role);
     }
 
