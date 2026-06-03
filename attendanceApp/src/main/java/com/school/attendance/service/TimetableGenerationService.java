@@ -781,10 +781,17 @@ public class TimetableGenerationService {
     }
 
     public TimetableLiveResponseDTO liveTimetable(String batchId, String role, Long teacherId, String teacherName, String className, String section) {
-        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(isBlank(batchId) ? latestPublishedBatchId : batchId);
-        refreshBatch(batch);
         String safeRole = isBlank(role) ? "ADMIN" : role.trim().toUpperCase();
-        boolean published = batch.getGeneratedBatchId().equals(latestPublishedBatchId) || Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
+        String publishedBatchId = resolveLatestPublishedBatchId();
+        String targetBatchId = isBlank(batchId) && !isAdminRole(safeRole) ? publishedBatchId : (isBlank(batchId) ? publishedBatchId : batchId);
+
+        if (!isAdminRole(safeRole) && isBlank(targetBatchId)) {
+            return new TimetableLiveResponseDTO(null, safeRole, safeRole, false, false, "Timetable is not published yet. Draft timetables are hidden for Teacher, Student, and Parent roles.", List.of());
+        }
+
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(targetBatchId);
+        refreshBatch(batch);
+        boolean published = batch.getGeneratedBatchId().equals(publishedBatchId) || Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
         List<TimetableEntryDTO> filtered = new ArrayList<>(batch.getEntries());
         if ("TEACHER".equals(safeRole)) {
             if (teacherId != null) {
@@ -1024,10 +1031,22 @@ public class TimetableGenerationService {
 
     public List<TimetableNotificationDTO> roleNotifications(String role) {
         String safeRole = isBlank(role) ? "ADMIN_PRINCIPAL" : role.trim().toUpperCase();
-        if (latestPublishedBatchId == null) return List.of();
-        return notifications(latestPublishedBatchId).stream()
+        String publishedBatchId = resolveLatestPublishedBatchId();
+        if (publishedBatchId == null) return List.of();
+        return notifications(publishedBatchId).stream()
                 .filter(n -> "ALL".equalsIgnoreCase(n.getAudience()) || safeRole.equalsIgnoreCase(n.getAudience()) || (isAdminRole(safeRole) && "ADMIN_PRINCIPAL".equalsIgnoreCase(n.getAudience())))
                 .toList();
+    }
+
+    private String resolveLatestPublishedBatchId() {
+        if (!isBlank(latestPublishedBatchId) && generatedBatches.containsKey(latestPublishedBatchId)) {
+            return latestPublishedBatchId;
+        }
+        return publishLocks.entrySet().stream()
+                .filter(entry -> Boolean.TRUE.equals(entry.getValue()) && generatedBatches.containsKey(entry.getKey()))
+                .map(Map.Entry::getKey)
+                .reduce((first, second) -> second)
+                .orElse(null);
     }
 
     private ExistingTimetableImportResponseDTO buildImportResponse(String importBatchId, String schoolId, List<ExistingTimetableImportRowDTO> rows, List<ExistingTimetableImportIssueDTO> issues, List<TimetableConflictDTO> conflicts, String status, List<TimetableEntryDTO> entries) {
