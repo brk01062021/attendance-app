@@ -103,19 +103,19 @@ public class WorkspaceSetupService {
         dto.setProgressPercent(s.getProgressPercent());
         dto.setImportLocked(s.isImportLocked());
         dto.setImportLockMessage(s.isImportLocked()
-                ? "Complete Workspace Setup before importing school data. Required order: School Profile, Academic Year, Working Days, School Timings, Classes, Sections, Teachers, Subjects, Holiday Calendar."
-                : "Workspace Setup complete. Import School Data is unlocked.");
+                ? "Complete foundational Workspace Setup before importing school data. Required order: School Profile, Academic Year, Working Days, School Timings."
+                : "Foundational Workspace Setup complete. Import School Data is unlocked.");
         dto.setUpdatedAt(s.getUpdatedAt());
         dto.setSteps(List.of(
                 new WorkspaceStepDTO("SCHOOL_PROFILE", "School Profile", s.isSchoolProfileCompleted(), true),
                 new WorkspaceStepDTO("ACADEMIC_YEAR", "Academic Year", s.isAcademicYearCompleted(), true),
                 new WorkspaceStepDTO("WORKING_DAYS", "Working Days", s.isWorkingDaysCompleted(), true),
                 new WorkspaceStepDTO("SCHOOL_TIMINGS", "School Timings", s.isSchoolTimingsCompleted(), true),
-                new WorkspaceStepDTO("CLASSES", "Classes", s.isClassesCompleted(), true),
-                new WorkspaceStepDTO("SECTIONS", "Sections", s.isSectionsCompleted(), true),
-                new WorkspaceStepDTO("TEACHERS", "Teachers", s.isTeachersCompleted(), true),
-                new WorkspaceStepDTO("SUBJECTS", "Subjects", s.isSubjectsCompleted(), true),
-                new WorkspaceStepDTO("HOLIDAY_CALENDAR", "Holiday Calendar", s.isHolidayCalendarCompleted(), true)
+                new WorkspaceStepDTO("CLASSES", "Classes", s.isClassesCompleted(), false),
+                new WorkspaceStepDTO("SECTIONS", "Sections", s.isSectionsCompleted(), false),
+                new WorkspaceStepDTO("TEACHERS", "Teachers", s.isTeachersCompleted(), false),
+                new WorkspaceStepDTO("SUBJECTS", "Subjects", s.isSubjectsCompleted(), false),
+                new WorkspaceStepDTO("HOLIDAY_CALENDAR", "Holiday Calendar", s.isHolidayCalendarCompleted(), false)
         ));
         return dto;
     }

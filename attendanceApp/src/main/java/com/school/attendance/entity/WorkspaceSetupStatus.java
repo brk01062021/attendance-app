@@ -70,7 +70,14 @@ public class WorkspaceSetupStatus {
         completedSteps = count;
         totalSteps = 9;
         progressPercent = Math.round((count * 100f) / totalSteps);
-        importLocked = count < totalSteps;
+
+        // Import School Data must unlock after the foundational workspace setup is complete.
+        // Classes, Sections, Teachers, Subjects, and Holiday Calendar are populated/validated
+        // by the workbook import itself, so requiring them before upload creates a deadlock.
+        importLocked = !(schoolProfileCompleted
+                && academicYearCompleted
+                && workingDaysCompleted
+                && schoolTimingsCompleted);
     }
 
     public Long getId() { return id; }
