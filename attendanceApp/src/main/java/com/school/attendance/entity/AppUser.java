@@ -23,7 +23,7 @@ public class AppUser {
     private String schoolCode = "DEMO";
 
     private String displayName;
-    private String schoolName = "VidyaSetu Demo School";
+    private String schoolName = "BRK International School";
 
     @Column(name = "credentials_active", nullable = false)
     private Boolean credentialsActive = true;
@@ -76,7 +76,7 @@ public class AppUser {
     public void setDisplayName(String displayName) { this.displayName = displayName; }
 
     public String getSchoolName() {
-        return schoolName == null || schoolName.isBlank() ? "VidyaSetu Demo School" : schoolName;
+        return schoolName == null || schoolName.isBlank() ? "BRK International School" : schoolName;
     }
 
     public void setSchoolName(String schoolName) { this.schoolName = schoolName; }

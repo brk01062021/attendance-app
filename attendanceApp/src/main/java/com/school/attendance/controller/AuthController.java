@@ -55,7 +55,7 @@ public class AuthController {
         user.setDisplayName(request.getTeacherName() != null && !request.getTeacherName().isBlank()
                 ? request.getTeacherName()
                 : request.getUsername());
-        user.setSchoolName("VidyaSetu Demo School");
+        user.setSchoolName("BRK International School");
 
         userRepository.save(user);
 
