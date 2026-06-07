@@ -4,6 +4,7 @@ import com.school.attendance.dto.AcademicRuleDTO;
 import com.school.attendance.dto.AcademicRulesSummaryDTO;
 import com.school.attendance.dto.ClassTeacherPoolDTO;
 import com.school.attendance.dto.ExistingTimetableImportResponseDTO;
+import com.school.attendance.dto.ExistingTimetableImportStatusDTO;
 import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
 import com.school.attendance.dto.TimetableConflictDTO;
 import com.school.attendance.dto.TimetableGenerationRequestDTO;
@@ -277,6 +278,15 @@ public class TimetableGenerationController {
             return timetableGenerationService.publishImportedTimetable(response.getImportBatchId(), role, approvedBy);
         }
         return response;
+    }
+
+    @GetMapping({"/import-existing/status", "/operations/import-existing/status"})
+    public ExistingTimetableImportStatusDTO existingTimetableImportStatus(
+            @RequestHeader(value = "X-School-Id", required = false) String headerSchoolId,
+            @RequestParam(required = false) String schoolId
+    ) {
+        String effectiveSchoolId = schoolId != null && !schoolId.isBlank() ? schoolId : headerSchoolId;
+        return timetableGenerationService.existingTimetableImportStatus(effectiveSchoolId);
     }
 
     @PostMapping("/import-existing/publish/{importBatchId}")

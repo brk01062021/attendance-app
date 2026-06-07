@@ -6,6 +6,8 @@ import com.school.attendance.dto.ClassTeacherPoolDTO;
 import com.school.attendance.dto.ExistingTimetableImportIssueDTO;
 import com.school.attendance.dto.ExistingTimetableImportResponseDTO;
 import com.school.attendance.dto.ExistingTimetableImportRowDTO;
+import com.school.attendance.dto.ExistingTimetableImportStatusDTO;
+import com.school.attendance.dto.ExistingTimetableImportSummaryDTO;
 import com.school.attendance.dto.TeacherWorkloadSummaryDTO;
 import com.school.attendance.dto.TimetableClassSectionReviewDTO;
 import com.school.attendance.dto.TimetableConflictDTO;
@@ -977,11 +979,12 @@ public class TimetableGenerationService {
         } catch (Exception ex) {
             issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "file", "Unable to read the Excel timetable file. Please upload a valid .xlsx workbook."));
         }
+        addImportConsistencyIssues(rows, issues);
         List<TimetableEntryDTO> entries = buildImportedEntries(rows);
         TimetableGenerationRequestDTO request = new TimetableGenerationRequestDTO();
         request.setPreventConsecutiveLabsEnabled(false);
         List<TimetableConflictDTO> conflicts = detectConflicts(entries, request);
-        conflicts.forEach(conflict -> issues.add(new ExistingTimetableImportIssueDTO(conflict.getPeriodNumber(), "ERROR", "conflict", conflict.getTitle() + " - " + conflict.getDescription())));
+        conflicts.forEach(conflict -> issues.add(new ExistingTimetableImportIssueDTO(conflict.getPeriodNumber(), "ERROR", "Teacher/Class Conflict", "Teacher Conflicts", conflict.getTitle() + " - " + conflict.getDescription())));
         String importBatchId = "IMP-TT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         ExistingTimetableImportResponseDTO response = buildImportResponse(importBatchId, safeSchoolId, rows, issues, conflicts, conflicts.isEmpty() && issues.stream().noneMatch(i -> "ERROR".equalsIgnoreCase(i.getSeverity())) ? "VALIDATED" : "VALIDATION_FAILED", entries);
         existingTimetableImports.put(importBatchId, response);
@@ -996,6 +999,46 @@ public class TimetableGenerationService {
             addNotification(importBatchId, "ADMIN_PRINCIPAL", "Existing timetable validated", "Imported timetable is ready for Admin/Principal preview and publish.");
         }
         return response;
+    }
+
+    public ExistingTimetableImportStatusDTO existingTimetableImportStatus(String schoolId) {
+        String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        ExistingTimetableImportResponseDTO latest = existingTimetableImports.values().stream()
+                .filter(item -> safeSchoolId.equalsIgnoreCase(item.getSchoolId()))
+                .reduce((first, second) -> second)
+                .orElse(null);
+        ExistingTimetableImportStatusDTO status = new ExistingTimetableImportStatusDTO();
+        status.setSchoolId(safeSchoolId);
+        if (latest == null) {
+            status.setStatus("NO_TIMETABLE_IMPORTED");
+            status.setLabel("No Timetable Imported");
+            status.setMessage("Import the school’s active timetable before attendance rollout if the school is not generating a new timetable.");
+            status.setTotalClasses(0);
+            status.setTotalSections(0);
+            status.setTotalTeachers(0);
+            status.setTotalPeriodAllocations(0);
+            return status;
+        }
+        status.setImportBatchId(latest.getImportBatchId());
+        status.setPublishedBatchId(latest.getPublishedBatchId());
+        status.setTotalClasses(latest.getTotalClasses());
+        status.setTotalSections(latest.getTotalSections());
+        status.setTotalTeachers(latest.getTotalTeachers());
+        status.setTotalPeriodAllocations(latest.getTotalPeriodAllocations());
+        if ("PUBLISHED".equalsIgnoreCase(latest.getStatus())) {
+            status.setStatus("PUBLISHED");
+            status.setLabel("Published");
+            status.setMessage("Imported timetable is published and visible to Teacher, Student, and Parent roles.");
+        } else if (Boolean.TRUE.equals(latest.getCanPublish())) {
+            status.setStatus("READY_TO_PUBLISH");
+            status.setLabel("Imported – Ready to Publish");
+            status.setMessage("Imported timetable validation is complete. Admin/Principal can publish after review.");
+        } else {
+            status.setStatus("VALIDATION_PENDING");
+            status.setLabel("Imported – Validation Pending");
+            status.setMessage("Imported timetable requires correction before publish.");
+        }
+        return status;
     }
 
     public ExistingTimetableImportResponseDTO publishImportedTimetable(String importBatchId, String role, String approvedBy) {
@@ -1062,9 +1105,14 @@ public class TimetableGenerationService {
         response.setPreviewEntries(entries == null ? List.of() : entries);
         response.setTotalRows(rows.size());
         response.setAcceptedRows(entries == null ? 0 : entries.size());
+        response.setTotalClasses((int) rows.stream().map(ExistingTimetableImportRowDTO::getClassName).filter(value -> !isBlank(value)).map(String::trim).distinct().count());
+        response.setTotalSections((int) rows.stream().map(row -> (safeText(row.getClassName()) + "-" + safeText(row.getSection())).toUpperCase()).filter(value -> !value.equals("-")).distinct().count());
+        response.setTotalTeachers((int) rows.stream().map(ExistingTimetableImportRowDTO::getTeacher).filter(value -> !isBlank(value)).map(value -> value.trim().toUpperCase()).distinct().count());
+        response.setTotalPeriodAllocations(entries == null ? 0 : entries.size());
         response.setErrorCount(errors);
         response.setWarningCount(warnings);
         response.setConflictsDetected(conflicts == null ? 0 : conflicts.size());
+        response.setValidationCards(buildImportValidationCards(issues));
         response.setValid(errors == 0 && (conflicts == null || conflicts.isEmpty()) && !rows.isEmpty());
         response.setCanPublish(Boolean.TRUE.equals(response.getValid()));
         response.setMessage(Boolean.TRUE.equals(response.getValid()) ? "Existing timetable validated and converted into VidyaSetu timetable format. Review preview, then publish." : "Existing timetable needs correction before publish.");
@@ -1097,12 +1145,60 @@ public class TimetableGenerationService {
     }
 
     private void validateImportRow(ExistingTimetableImportRowDTO row, int rowNumber, List<ExistingTimetableImportIssueDTO> issues) {
-        if (isBlank(row.getClassName())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Class", "Class is required."));
-        if (isBlank(row.getSection())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Section", "Section is required."));
-        if (isBlank(row.getDay()) || !DAYS.contains(row.getDay())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Day", "Day must be Monday to Saturday."));
-        if (row.getPeriod() == null || row.getPeriod() < 1 || row.getPeriod() > 12) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Period", "Period must be a number between 1 and 12."));
-        if (isBlank(row.getSubject())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Subject", "Subject is required."));
-        if (isBlank(row.getTeacher())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Teacher", "Teacher is required."));
+        if (isBlank(row.getClassName())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Class", "Missing Class", "Class is required."));
+        if (isBlank(row.getSection())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Section", "Missing Section", "Section is required."));
+        if (isBlank(row.getDay()) || !DAYS.contains(row.getDay())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Day", "Invalid Day", "Day must be Monday to Saturday."));
+        if (row.getPeriod() == null || row.getPeriod() < 1 || row.getPeriod() > 12) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Period", "Invalid Period", "Period must be a number between 1 and 12."));
+        if (isBlank(row.getSubject())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Subject", "Missing Subject", "Subject is required."));
+        if (isBlank(row.getTeacher())) issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Teacher", "Missing Teacher", "Teacher is required."));
+    }
+
+
+    private void addImportConsistencyIssues(List<ExistingTimetableImportRowDTO> rows, List<ExistingTimetableImportIssueDTO> issues) {
+        Set<String> classSlots = new HashSet<>();
+        Set<String> teacherSlots = new HashSet<>();
+        Set<String> subjects = rows.stream().map(ExistingTimetableImportRowDTO::getSubject).filter(value -> !isBlank(value)).map(value -> value.trim().toUpperCase()).collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> teachers = rows.stream().map(ExistingTimetableImportRowDTO::getTeacher).filter(value -> !isBlank(value)).map(value -> value.trim().toUpperCase()).collect(Collectors.toCollection(LinkedHashSet::new));
+        for (int index = 0; index < rows.size(); index++) {
+            ExistingTimetableImportRowDTO row = rows.get(index);
+            int rowNumber = index + 2;
+            if (!isBlank(row.getClassName()) && !isBlank(row.getSection()) && !isBlank(row.getDay()) && row.getPeriod() != null) {
+                String classKey = safeText(row.getClassName()) + "|" + safeText(row.getSection()) + "|" + safeText(row.getDay()) + "|" + row.getPeriod();
+                if (!classSlots.add(classKey)) {
+                    issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Class Slot", "Class Conflicts", "This class section already has a timetable entry for the same day and period."));
+                }
+            }
+            if (!isBlank(row.getTeacher()) && !isBlank(row.getDay()) && row.getPeriod() != null) {
+                String teacherKey = safeText(row.getTeacher()) + "|" + safeText(row.getDay()) + "|" + row.getPeriod();
+                if (!teacherSlots.add(teacherKey)) {
+                    issues.add(new ExistingTimetableImportIssueDTO(rowNumber, "ERROR", "Teacher Slot", "Teacher Conflicts", "This teacher is assigned to more than one class in the same day and period."));
+                }
+            }
+        }
+        subjects.stream().filter(subject -> subject.length() < 2).forEach(subject -> issues.add(new ExistingTimetableImportIssueDTO(0, "WARNING", "Subject", "Unknown Subjects", "Review subject name before publishing.")));
+        teachers.stream().filter(teacher -> teacher.length() < 2).forEach(teacher -> issues.add(new ExistingTimetableImportIssueDTO(0, "WARNING", "Teacher", "Unknown Teachers", "Review teacher name before publishing.")));
+    }
+
+    private List<ExistingTimetableImportSummaryDTO> buildImportValidationCards(List<ExistingTimetableImportIssueDTO> issues) {
+        Map<String, List<ExistingTimetableImportIssueDTO>> grouped = issues.stream().collect(Collectors.groupingBy(issue -> isBlank(issue.getCategory()) ? safeText(issue.getFieldName()) : issue.getCategory(), LinkedHashMap::new, Collectors.toList()));
+        List<ExistingTimetableImportSummaryDTO> cards = new ArrayList<>();
+        for (Map.Entry<String, List<ExistingTimetableImportIssueDTO>> item : grouped.entrySet()) {
+            boolean hasError = item.getValue().stream().anyMatch(issue -> "ERROR".equalsIgnoreCase(issue.getSeverity()));
+            cards.add(new ExistingTimetableImportSummaryDTO(item.getKey(), item.getValue().size(), hasError ? "ERROR" : "WARNING", importGuidance(item.getKey())));
+        }
+        return cards;
+    }
+
+    private String importGuidance(String category) {
+        String value = safeText(category).toUpperCase();
+        if (value.contains("CLASS CONFLICT")) return "A class section can have only one subject in a day-period slot.";
+        if (value.contains("TEACHER CONFLICT")) return "A teacher can teach only one class in a day-period slot.";
+        if (value.contains("PERIOD")) return "Use valid period numbers from the school timetable day.";
+        if (value.contains("TEACHER")) return "Use teacher names that match the committed school workbook.";
+        if (value.contains("SUBJECT")) return "Use subject names that match the committed school workbook.";
+        if (value.contains("SECTION")) return "Use sections that exist for the selected class.";
+        if (value.contains("CLASS")) return "Use classes that exist in the committed school workbook.";
+        return "Update the Excel timetable and validate again.";
     }
 
     private List<TimetableEntryDTO> buildImportedEntries(List<ExistingTimetableImportRowDTO> rows) {
@@ -1145,6 +1241,10 @@ public class TimetableGenerationService {
         if (v.startsWith("FRI")) return "FRIDAY";
         if (v.startsWith("SAT")) return "SATURDAY";
         return v;
+    }
+
+    private String safeText(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private String titleCase(String value) {
