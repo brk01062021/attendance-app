@@ -20,6 +20,10 @@ public class ExistingTimetableImportResponseDTO {
     private Integer totalTeachers;
     private Integer totalPeriodAllocations;
     private String message;
+    private String fileStorageKey;
+    private String originalFilename;
+    private String contentType;
+    private Long fileSizeBytes;
     private List<ExistingTimetableImportRowDTO> rows = new ArrayList<>();
     private List<ExistingTimetableImportIssueDTO> issues = new ArrayList<>();
     private List<TimetableConflictDTO> conflicts = new ArrayList<>();
@@ -50,6 +54,14 @@ public class ExistingTimetableImportResponseDTO {
     public void setConflictsDetected(Integer conflictsDetected) { this.conflictsDetected = conflictsDetected; }
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
+    public String getFileStorageKey() { return fileStorageKey; }
+    public void setFileStorageKey(String fileStorageKey) { this.fileStorageKey = fileStorageKey; }
+    public String getOriginalFilename() { return originalFilename; }
+    public void setOriginalFilename(String originalFilename) { this.originalFilename = originalFilename; }
+    public String getContentType() { return contentType; }
+    public void setContentType(String contentType) { this.contentType = contentType; }
+    public Long getFileSizeBytes() { return fileSizeBytes; }
+    public void setFileSizeBytes(Long fileSizeBytes) { this.fileSizeBytes = fileSizeBytes; }
     public Integer getTotalClasses() { return totalClasses; }
     public void setTotalClasses(Integer totalClasses) { this.totalClasses = totalClasses; }
     public Integer getTotalSections() { return totalSections; }

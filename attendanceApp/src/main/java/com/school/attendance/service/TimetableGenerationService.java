@@ -27,6 +27,8 @@ import com.school.attendance.dto.TimetableBinaryExportDTO;
 import com.school.attendance.dto.TimetableLiveResponseDTO;
 import com.school.attendance.dto.TimetableNotificationDTO;
 import com.school.attendance.dto.TimetableVersionDTO;
+import com.school.attendance.entity.TimetableImportFileMetadata;
+import com.school.attendance.repository.TimetableImportFileMetadataRepository;
 import com.school.attendance.storage.FileStorageService;
 import com.school.attendance.storage.StoredFile;
 import org.springframework.stereotype.Service;
@@ -77,9 +79,11 @@ public class TimetableGenerationService {
     private volatile String latestPublishedBatchId;
 
     private final FileStorageService fileStorageService;
+    private final TimetableImportFileMetadataRepository timetableImportFileMetadataRepository;
 
-    public TimetableGenerationService(FileStorageService fileStorageService) {
+    public TimetableGenerationService(FileStorageService fileStorageService, TimetableImportFileMetadataRepository timetableImportFileMetadataRepository) {
         this.fileStorageService = fileStorageService;
+        this.timetableImportFileMetadataRepository = timetableImportFileMetadataRepository;
     }
 
     public TimetableGenerationResponseDTO generate(TimetableGenerationRequestDTO request) {
@@ -955,9 +959,10 @@ public class TimetableGenerationService {
             issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "file", "Please upload an Excel .xlsx file with Class, Section, Day, Period, Subject, Teacher columns."));
             return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
         }
+        StoredFile storedFile = null;
         try {
             byte[] bytes = file.getBytes();
-            StoredFile storedFile = fileStorageService.uploadTimetableImport(safeSchoolId, file, bytes);
+            storedFile = fileStorageService.uploadTimetableImport(safeSchoolId, file, bytes);
             try (InputStream inputStream = new ByteArrayInputStream(bytes); Workbook workbook = new XSSFWorkbook(inputStream)) {
                 Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
                 if (sheet == null) {
@@ -1000,6 +1005,8 @@ public class TimetableGenerationService {
         conflicts.forEach(conflict -> issues.add(new ExistingTimetableImportIssueDTO(conflict.getPeriodNumber(), "ERROR", "Teacher/Class Conflict", "Teacher Conflicts", conflict.getTitle() + " - " + conflict.getDescription())));
         String importBatchId = "IMP-TT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         ExistingTimetableImportResponseDTO response = buildImportResponse(importBatchId, safeSchoolId, rows, issues, conflicts, conflicts.isEmpty() && issues.stream().noneMatch(i -> "ERROR".equalsIgnoreCase(i.getSeverity())) ? "VALIDATED" : "VALIDATION_FAILED", entries);
+        attachStoredFileMetadata(response, storedFile);
+        saveTimetableImportFileMetadata(safeSchoolId, uploadedBy, importBatchId, response.getStatus(), storedFile);
         existingTimetableImports.put(importBatchId, response);
         if (Boolean.TRUE.equals(response.getCanPublish())) {
             TimetableGenerationResponseDTO batch = new TimetableGenerationResponseDTO();
@@ -1103,6 +1110,34 @@ public class TimetableGenerationService {
                 .map(Map.Entry::getKey)
                 .reduce((first, second) -> second)
                 .orElse(null);
+    }
+
+    private void attachStoredFileMetadata(ExistingTimetableImportResponseDTO response, StoredFile storedFile) {
+        if (response == null || storedFile == null) {
+            return;
+        }
+        response.setFileStorageKey(storedFile.storageKey());
+        response.setOriginalFilename(storedFile.originalFilename());
+        response.setContentType(storedFile.contentType());
+        response.setFileSizeBytes(storedFile.sizeBytes());
+    }
+
+    private void saveTimetableImportFileMetadata(String schoolId, String uploadedBy, String importBatchId, String status, StoredFile storedFile) {
+        if (storedFile == null) {
+            return;
+        }
+        TimetableImportFileMetadata metadata = new TimetableImportFileMetadata();
+        metadata.setSchoolId(schoolId);
+        metadata.setAcademicYear(null);
+        metadata.setOriginalFilename(storedFile.originalFilename());
+        metadata.setStorageKey(storedFile.storageKey());
+        metadata.setContentType(storedFile.contentType());
+        metadata.setFileSizeBytes(storedFile.sizeBytes());
+        metadata.setUploadedBy(isBlank(uploadedBy) ? "ADMIN" : uploadedBy.trim());
+        metadata.setUploadedAt(LocalDateTime.now());
+        metadata.setStatus(status == null || status.isBlank() ? "UPLOADED" : status);
+        metadata.setImportBatchId(importBatchId);
+        timetableImportFileMetadataRepository.save(metadata);
     }
 
     private ExistingTimetableImportResponseDTO buildImportResponse(String importBatchId, String schoolId, List<ExistingTimetableImportRowDTO> rows, List<ExistingTimetableImportIssueDTO> issues, List<TimetableConflictDTO> conflicts, String status, List<TimetableEntryDTO> entries) {
