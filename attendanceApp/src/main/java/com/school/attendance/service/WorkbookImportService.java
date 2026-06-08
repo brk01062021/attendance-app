@@ -34,19 +34,22 @@ public class WorkbookImportService {
     private final ObjectMapper objectMapper;
     private final WorkspaceSetupService workspaceSetupService;
     private final FileStorageService fileStorageService;
+    private final UploadedFileMetadataService uploadedFileMetadataService;
 
     public WorkbookImportService(ImportValidationService importValidationService,
                                  SchoolImportUploadRepository uploadRepository,
                                  SchoolImportStagingRecordRepository stagingRepository,
                                  ObjectMapper objectMapper,
                                  WorkspaceSetupService workspaceSetupService,
-                                 FileStorageService fileStorageService) {
+                                 FileStorageService fileStorageService,
+                                 UploadedFileMetadataService uploadedFileMetadataService) {
         this.importValidationService = importValidationService;
         this.uploadRepository = uploadRepository;
         this.stagingRepository = stagingRepository;
         this.objectMapper = objectMapper;
         this.workspaceSetupService = workspaceSetupService;
         this.fileStorageService = fileStorageService;
+        this.uploadedFileMetadataService = uploadedFileMetadataService;
     }
 
     @Transactional
@@ -69,6 +72,13 @@ public class WorkbookImportService {
         try {
             byte[] bytes = file.getBytes();
             StoredFile storedFile = fileStorageService.uploadWorkbook(normalizedSchoolId, file, bytes);
+            uploadedFileMetadataService.save(
+                    normalizedSchoolId,
+                    "workbook-import",
+                    storedFile,
+                    null,
+                    "UPLOADED"
+            );
             String checksum = sha256(bytes);
             String importBatchId = buildImportBatchId(normalizedSchoolId, checksum);
             WorkbookSnapshot snapshot = parseWorkbook(bytes);
