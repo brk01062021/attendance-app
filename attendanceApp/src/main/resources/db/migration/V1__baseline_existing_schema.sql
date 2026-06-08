@@ -1,0 +1,4 @@
+-- VidyaSetu Day 22 Flyway baseline marker.
+-- This file intentionally does not create tables.
+-- Existing local database schema is currently managed by Hibernate ddl-auto=update.
+-- Next step: export real schema from attendance_db and replace/add a proper V2 migration before AWS staging.

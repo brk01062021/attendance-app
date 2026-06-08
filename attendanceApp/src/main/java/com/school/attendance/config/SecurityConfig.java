@@ -24,11 +24,14 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final TenantRequestFilter tenantRequestFilter;
+    private final AppProperties appProperties;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          TenantRequestFilter tenantRequestFilter) {
+                          TenantRequestFilter tenantRequestFilter,
+                          AppProperties appProperties) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.tenantRequestFilter = tenantRequestFilter;
+        this.appProperties = appProperties;
     }
 
     @Bean
@@ -43,12 +46,13 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of(
-                "http://localhost:3000",
-                "http://127.0.0.1:3000",
-                "http://192.168.*.*:3000",
-                "https://portal.vidyasetu.co"
-        ));
+        List<String> allowedOrigins = appProperties.getCors().getAllowedOrigins();
+
+        if (allowedOrigins.isEmpty()) {
+            throw new IllegalStateException("app.cors.allowed-origins must be configured for the active profile");
+        }
+
+        configuration.setAllowedOriginPatterns(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-School-Id", "Accept", "Origin"));
         configuration.setExposedHeaders(List.of("Authorization", "X-School-Id"));

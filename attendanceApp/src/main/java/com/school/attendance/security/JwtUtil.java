@@ -1,24 +1,46 @@
 package com.school.attendance.security;
 
+import com.school.attendance.config.AppProperties;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
+import java.time.Duration;
 import java.util.Date;
 
 @Component
 public class JwtUtil {
 
-    private static final String SECRET =
-            "this-is-a-very-secret-key-for-school-attendance-app-123456";
+    private final AppProperties appProperties;
 
-    private static final long EXPIRATION_TIME = 1000 * 60 * 60 * 8; // 8 hours for pilot testing
+    public JwtUtil(AppProperties appProperties) {
+        this.appProperties = appProperties;
+    }
+
+    @PostConstruct
+    void validateJwtConfig() {
+        String secret = appProperties.getJwt().getSecret();
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("app.jwt.secret must be configured");
+        }
+        if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException("app.jwt.secret must be at least 32 bytes for HS256 signing");
+        }
+    }
 
     private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        return Keys.hmacShaKeyFor(appProperties.getJwt().getSecret().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private long getExpirationMillis() {
+        int expiryMinutes = appProperties.getJwt().getExpiryMinutes() == null
+                ? 60
+                : appProperties.getJwt().getExpiryMinutes();
+        return Duration.ofMinutes(expiryMinutes).toMillis();
     }
 
     public String generateToken(String username, String role) {
@@ -32,7 +54,7 @@ public class JwtUtil {
                 .claim("school_id", schoolCode == null ? "DEMO" : schoolCode.toUpperCase())
                 .claim("user_id", userId)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME))
+                .expiration(new Date(System.currentTimeMillis() + getExpirationMillis()))
                 .signWith(getSigningKey())
                 .compact();
     }
