@@ -7,4 +7,6 @@ import java.util.Optional;
 
 public interface TimetableImportFileMetadataRepository extends JpaRepository<TimetableImportFileMetadata, Long> {
     Optional<TimetableImportFileMetadata> findTopBySchoolIdOrderByUploadedAtDesc(String schoolId);
+
+    Optional<TimetableImportFileMetadata> findTopByImportBatchIdOrderByUploadedAtDesc(String importBatchId);
 }

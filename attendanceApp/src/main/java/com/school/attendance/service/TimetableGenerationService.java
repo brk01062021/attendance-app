@@ -637,6 +637,7 @@ public class TimetableGenerationService {
         if (success) {
             latestPublishedBatchId = batch.getGeneratedBatchId();
             publishLocks.put(batch.getGeneratedBatchId(), true);
+            updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), "PUBLISHED");
             addVersion(batch.getGeneratedBatchId(), approvedBy, "PUBLISHED_LOCKED", batch.getEntries().size(), "Published timetable locked for production visibility.");
             addNotification(batch.getGeneratedBatchId(), "TEACHERS_STUDENTS_PARENTS", "New timetable published", notificationMessage);
             archiveHistory.put(batch.getGeneratedBatchId(), new TimetableArchiveSummaryDTO(batch.getGeneratedBatchId(), publishedAt, approvedBy, batch.getEntries().size(), "PUBLISHED_ARCHIVED", "Published timetable snapshot archived for Day 18 history."));
@@ -1138,6 +1139,18 @@ public class TimetableGenerationService {
         metadata.setStatus(status == null || status.isBlank() ? "UPLOADED" : status);
         metadata.setImportBatchId(importBatchId);
         timetableImportFileMetadataRepository.save(metadata);
+    }
+
+
+    private void updateTimetableImportFileMetadataStatus(String importBatchId, String status) {
+        if (isBlank(importBatchId) || isBlank(status)) {
+            return;
+        }
+        timetableImportFileMetadataRepository.findTopByImportBatchIdOrderByUploadedAtDesc(importBatchId)
+                .ifPresent(metadata -> {
+                    metadata.setStatus(status.trim().toUpperCase());
+                    timetableImportFileMetadataRepository.save(metadata);
+                });
     }
 
     private ExistingTimetableImportResponseDTO buildImportResponse(String importBatchId, String schoolId, List<ExistingTimetableImportRowDTO> rows, List<ExistingTimetableImportIssueDTO> issues, List<TimetableConflictDTO> conflicts, String status, List<TimetableEntryDTO> entries) {
