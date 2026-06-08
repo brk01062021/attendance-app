@@ -27,6 +27,8 @@ import com.school.attendance.dto.TimetableBinaryExportDTO;
 import com.school.attendance.dto.TimetableLiveResponseDTO;
 import com.school.attendance.dto.TimetableNotificationDTO;
 import com.school.attendance.dto.TimetableVersionDTO;
+import com.school.attendance.storage.FileStorageService;
+import com.school.attendance.storage.StoredFile;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.apache.poi.ss.usermodel.Cell;
@@ -36,6 +38,7 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -72,6 +75,12 @@ public class TimetableGenerationService {
     private final Map<String, ExistingTimetableImportResponseDTO> existingTimetableImports = new ConcurrentHashMap<>();
     private volatile String latestBatchId;
     private volatile String latestPublishedBatchId;
+
+    private final FileStorageService fileStorageService;
+
+    public TimetableGenerationService(FileStorageService fileStorageService) {
+        this.fileStorageService = fileStorageService;
+    }
 
     public TimetableGenerationResponseDTO generate(TimetableGenerationRequestDTO request) {
         TimetableGenerationRequestDTO safeRequest = normalize(request);
@@ -946,35 +955,39 @@ public class TimetableGenerationService {
             issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "file", "Please upload an Excel .xlsx file with Class, Section, Day, Period, Subject, Teacher columns."));
             return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
         }
-        try (InputStream inputStream = file.getInputStream(); Workbook workbook = new XSSFWorkbook(inputStream)) {
-            Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
-            if (sheet == null) {
-                issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "sheet", "Excel workbook does not contain a timetable sheet."));
-                return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
-            }
-            DataFormatter formatter = new DataFormatter();
-            Map<String, Integer> headers = readHeaders(sheet.getRow(0), formatter);
-            List<String> required = List.of("class", "section", "day", "period", "subject", "teacher");
-            for (String requiredHeader : required) {
-                if (!headers.containsKey(requiredHeader)) {
-                    issues.add(new ExistingTimetableImportIssueDTO(1, "ERROR", requiredHeader, "Missing required column: " + titleCase(requiredHeader)));
+        try {
+            byte[] bytes = file.getBytes();
+            StoredFile storedFile = fileStorageService.uploadTimetableImport(safeSchoolId, file, bytes);
+            try (InputStream inputStream = new ByteArrayInputStream(bytes); Workbook workbook = new XSSFWorkbook(inputStream)) {
+                Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
+                if (sheet == null) {
+                    issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "sheet", "Excel workbook does not contain a timetable sheet."));
+                    return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
                 }
-            }
-            if (!issues.isEmpty()) return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
-            for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
-                Row row = sheet.getRow(rowIndex);
-                if (row == null) continue;
-                ExistingTimetableImportRowDTO dto = new ExistingTimetableImportRowDTO(
-                        cleanCell(row, headers.get("class"), formatter),
-                        cleanCell(row, headers.get("section"), formatter),
-                        normalizeDay(cleanCell(row, headers.get("day"), formatter)),
-                        parsePeriod(cleanCell(row, headers.get("period"), formatter)),
-                        cleanCell(row, headers.get("subject"), formatter),
-                        cleanCell(row, headers.get("teacher"), formatter)
-                );
-                if (isBlank(dto.getClassName()) && isBlank(dto.getSection()) && isBlank(dto.getDay()) && dto.getPeriod() == null && isBlank(dto.getSubject()) && isBlank(dto.getTeacher())) continue;
-                validateImportRow(dto, rowIndex + 1, issues);
-                rows.add(dto);
+                DataFormatter formatter = new DataFormatter();
+                Map<String, Integer> headers = readHeaders(sheet.getRow(0), formatter);
+                List<String> required = List.of("class", "section", "day", "period", "subject", "teacher");
+                for (String requiredHeader : required) {
+                    if (!headers.containsKey(requiredHeader)) {
+                        issues.add(new ExistingTimetableImportIssueDTO(1, "ERROR", requiredHeader, "Missing required column: " + titleCase(requiredHeader)));
+                    }
+                }
+                if (!issues.isEmpty()) return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
+                for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+                    Row row = sheet.getRow(rowIndex);
+                    if (row == null) continue;
+                    ExistingTimetableImportRowDTO dto = new ExistingTimetableImportRowDTO(
+                            cleanCell(row, headers.get("class"), formatter),
+                            cleanCell(row, headers.get("section"), formatter),
+                            normalizeDay(cleanCell(row, headers.get("day"), formatter)),
+                            parsePeriod(cleanCell(row, headers.get("period"), formatter)),
+                            cleanCell(row, headers.get("subject"), formatter),
+                            cleanCell(row, headers.get("teacher"), formatter)
+                    );
+                    if (isBlank(dto.getClassName()) && isBlank(dto.getSection()) && isBlank(dto.getDay()) && dto.getPeriod() == null && isBlank(dto.getSubject()) && isBlank(dto.getTeacher())) continue;
+                    validateImportRow(dto, rowIndex + 1, issues);
+                    rows.add(dto);
+                }
             }
         } catch (Exception ex) {
             issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "file", "Unable to read the Excel timetable file. Please upload a valid .xlsx workbook."));

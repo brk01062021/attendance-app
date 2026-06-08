@@ -8,6 +8,8 @@ import com.school.attendance.entity.SchoolImportUpload;
 import com.school.attendance.repository.SchoolImportStagingRecordRepository;
 import com.school.attendance.repository.SchoolImportUploadRepository;
 import com.school.attendance.repository.SchoolImportUploadSummaryProjection;
+import com.school.attendance.storage.FileStorageService;
+import com.school.attendance.storage.StoredFile;
 import com.school.attendance.tenant.TenantContext;
 import com.school.attendance.tenant.TenantUtils;
 import org.apache.poi.ss.usermodel.*;
@@ -31,17 +33,20 @@ public class WorkbookImportService {
     private final SchoolImportStagingRecordRepository stagingRepository;
     private final ObjectMapper objectMapper;
     private final WorkspaceSetupService workspaceSetupService;
+    private final FileStorageService fileStorageService;
 
     public WorkbookImportService(ImportValidationService importValidationService,
                                  SchoolImportUploadRepository uploadRepository,
                                  SchoolImportStagingRecordRepository stagingRepository,
                                  ObjectMapper objectMapper,
-                                 WorkspaceSetupService workspaceSetupService) {
+                                 WorkspaceSetupService workspaceSetupService,
+                                 FileStorageService fileStorageService) {
         this.importValidationService = importValidationService;
         this.uploadRepository = uploadRepository;
         this.stagingRepository = stagingRepository;
         this.objectMapper = objectMapper;
         this.workspaceSetupService = workspaceSetupService;
+        this.fileStorageService = fileStorageService;
     }
 
     @Transactional
@@ -63,6 +68,7 @@ public class WorkbookImportService {
 
         try {
             byte[] bytes = file.getBytes();
+            StoredFile storedFile = fileStorageService.uploadWorkbook(normalizedSchoolId, file, bytes);
             String checksum = sha256(bytes);
             String importBatchId = buildImportBatchId(normalizedSchoolId, checksum);
             WorkbookSnapshot snapshot = parseWorkbook(bytes);
@@ -97,7 +103,9 @@ public class WorkbookImportService {
             upload.setErrorCount((int) preview.getIssues().stream().filter(issue -> "ERROR".equalsIgnoreCase(issue.getSeverity())).count());
             upload.setWarningCount((int) preview.getIssues().stream().filter(issue -> "WARNING".equalsIgnoreCase(issue.getSeverity())).count());
             upload.setUploadedByRole(safeRole);
-            upload.setLifecycleMessage(preview.isValid() ? "Workbook uploaded, validated, and ready for commit staging." : "Workbook uploaded but commit is blocked until validation errors are resolved.");
+            upload.setLifecycleMessage(preview.isValid()
+                    ? "Workbook uploaded, stored in " + storedFile.storageProvider() + ", validated, and ready for commit staging."
+                    : "Workbook uploaded and stored in " + storedFile.storageProvider() + ", but commit is blocked until validation errors are resolved.");
             upload.setPreviewJson(writePreview(preview));
             upload.setWorkbookDataJson(writeWorkbookData(snapshot));
             uploadRepository.save(upload);

@@ -6,11 +6,14 @@ import com.school.attendance.entity.AttendanceStatus;
 import com.school.attendance.entity.Student;
 import com.school.attendance.repository.AttendanceRepository;
 import com.school.attendance.repository.StudentRepository;
+import com.school.attendance.storage.FileStorageService;
+import com.school.attendance.storage.StoredFile;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.LocalDate;
@@ -25,12 +28,16 @@ public class MissedAttendanceRecoveryService {
     private static final int RECOVERY_WINDOW_DAYS = 7;
     private final StudentRepository studentRepository;
     private final AttendanceRepository attendanceRepository;
+    private final FileStorageService fileStorageService;
     private final Map<String, MissedAttendanceRecoveryResponseDTO> batches = new ConcurrentHashMap<>();
     private final Map<String, List<String>> auditBySchool = new ConcurrentHashMap<>();
 
-    public MissedAttendanceRecoveryService(StudentRepository studentRepository, AttendanceRepository attendanceRepository) {
+    public MissedAttendanceRecoveryService(StudentRepository studentRepository,
+                                           AttendanceRepository attendanceRepository,
+                                           FileStorageService fileStorageService) {
         this.studentRepository = studentRepository;
         this.attendanceRepository = attendanceRepository;
+        this.fileStorageService = fileStorageService;
     }
 
     public byte[] template() {
@@ -63,33 +70,37 @@ public class MissedAttendanceRecoveryService {
             return build(null, safeSchoolId, rows, issues, "VALIDATION_FAILED", "Upload a valid missed attendance workbook.");
         }
         Map<String, Student> studentIndex = studentIndex();
-        try (InputStream in = file.getInputStream(); Workbook workbook = new XSSFWorkbook(in)) {
-            Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
-            if (sheet == null) {
-                issues.add(new MissedAttendanceRecoveryIssueDTO(0, "FILE", "ERROR", "Workbook must contain a missed attendance sheet."));
-                return build(null, safeSchoolId, rows, issues, "VALIDATION_FAILED", "Upload a valid missed attendance workbook.");
-            }
-            DataFormatter formatter = new DataFormatter();
-            Map<String,Integer> headers = headers(sheet.getRow(0), formatter);
-            for (String required : List.of("student id", "class", "section", "attendance date", "status", "reason")) {
-                if (!headers.containsKey(required)) issues.add(new MissedAttendanceRecoveryIssueDTO(1, "MISSING_COLUMN", "ERROR", "Missing required column: " + title(required)));
-            }
-            if (!issues.isEmpty()) return build(null, safeSchoolId, rows, issues, "VALIDATION_FAILED", "Required columns are missing.");
-            Set<String> fileDuplicates = new HashSet<>();
-            for (int i=1; i<=sheet.getLastRowNum(); i++) {
-                Row r = sheet.getRow(i); if (r == null) continue;
-                MissedAttendanceRecoveryRowDTO dto = new MissedAttendanceRecoveryRowDTO();
-                dto.setRowNumber(i+1);
-                dto.setStudentId(cell(r, headers.get("student id"), formatter));
-                dto.setClassName(cell(r, headers.get("class"), formatter));
-                dto.setSection(cell(r, headers.get("section"), formatter));
-                dto.setAttendanceDate(cell(r, headers.get("attendance date"), formatter));
-                dto.setStatus(cell(r, headers.get("status"), formatter).toUpperCase(Locale.ROOT));
-                dto.setReason(cell(r, headers.get("reason"), formatter));
-                if (isBlank(dto.getStudentId()) && isBlank(dto.getClassName()) && isBlank(dto.getSection()) && isBlank(dto.getAttendanceDate()) && isBlank(dto.getStatus())) continue;
-                validateRow(dto, issues, studentIndex, fileDuplicates);
-                dto.setValid(issues.stream().noneMatch(x -> x.getRowNumber() == dto.getRowNumber() && "ERROR".equalsIgnoreCase(x.getSeverity())));
-                rows.add(dto);
+        try {
+            byte[] bytes = file.getBytes();
+            StoredFile storedFile = fileStorageService.uploadAttendanceRecovery(safeSchoolId, file, bytes);
+            try (InputStream in = new ByteArrayInputStream(bytes); Workbook workbook = new XSSFWorkbook(in)) {
+                Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
+                if (sheet == null) {
+                    issues.add(new MissedAttendanceRecoveryIssueDTO(0, "FILE", "ERROR", "Workbook must contain a missed attendance sheet."));
+                    return build(null, safeSchoolId, rows, issues, "VALIDATION_FAILED", "Upload a valid missed attendance workbook.");
+                }
+                DataFormatter formatter = new DataFormatter();
+                Map<String,Integer> headers = headers(sheet.getRow(0), formatter);
+                for (String required : List.of("student id", "class", "section", "attendance date", "status", "reason")) {
+                    if (!headers.containsKey(required)) issues.add(new MissedAttendanceRecoveryIssueDTO(1, "MISSING_COLUMN", "ERROR", "Missing required column: " + title(required)));
+                }
+                if (!issues.isEmpty()) return build(null, safeSchoolId, rows, issues, "VALIDATION_FAILED", "Required columns are missing.");
+                Set<String> fileDuplicates = new HashSet<>();
+                for (int i=1; i<=sheet.getLastRowNum(); i++) {
+                    Row r = sheet.getRow(i); if (r == null) continue;
+                    MissedAttendanceRecoveryRowDTO dto = new MissedAttendanceRecoveryRowDTO();
+                    dto.setRowNumber(i+1);
+                    dto.setStudentId(cell(r, headers.get("student id"), formatter));
+                    dto.setClassName(cell(r, headers.get("class"), formatter));
+                    dto.setSection(cell(r, headers.get("section"), formatter));
+                    dto.setAttendanceDate(cell(r, headers.get("attendance date"), formatter));
+                    dto.setStatus(cell(r, headers.get("status"), formatter).toUpperCase(Locale.ROOT));
+                    dto.setReason(cell(r, headers.get("reason"), formatter));
+                    if (isBlank(dto.getStudentId()) && isBlank(dto.getClassName()) && isBlank(dto.getSection()) && isBlank(dto.getAttendanceDate()) && isBlank(dto.getStatus())) continue;
+                    validateRow(dto, issues, studentIndex, fileDuplicates);
+                    dto.setValid(issues.stream().noneMatch(x -> x.getRowNumber() == dto.getRowNumber() && "ERROR".equalsIgnoreCase(x.getSeverity())));
+                    rows.add(dto);
+                }
             }
         } catch (Exception ex) {
             issues.add(new MissedAttendanceRecoveryIssueDTO(0, "FILE", "ERROR", "Unable to read the Excel file. Upload a valid .xlsx workbook."));
