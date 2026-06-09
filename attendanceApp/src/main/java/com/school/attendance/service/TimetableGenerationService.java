@@ -964,11 +964,12 @@ public class TimetableGenerationService {
 
     public ExistingTimetableImportResponseDTO importExistingTimetable(MultipartFile file, String schoolId, String uploadedBy) {
         String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        String importBatchId = "IMP-TT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         List<ExistingTimetableImportIssueDTO> issues = new ArrayList<>();
         List<ExistingTimetableImportRowDTO> rows = new ArrayList<>();
         if (file == null || file.isEmpty()) {
             issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "file", "Please upload an Excel .xlsx file with Class, Section, Day, Period, Subject, Teacher columns."));
-            return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
+            return buildImportResponse(importBatchId, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
         }
         StoredFile storedFile = null;
         try {
@@ -978,7 +979,7 @@ public class TimetableGenerationService {
                 Sheet sheet = workbook.getNumberOfSheets() > 0 ? workbook.getSheetAt(0) : null;
                 if (sheet == null) {
                     issues.add(new ExistingTimetableImportIssueDTO(0, "ERROR", "sheet", "Excel workbook does not contain a timetable sheet."));
-                    return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
+                    return buildImportResponse(importBatchId, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
                 }
                 DataFormatter formatter = new DataFormatter();
                 Map<String, Integer> headers = readHeaders(sheet.getRow(0), formatter);
@@ -988,7 +989,7 @@ public class TimetableGenerationService {
                         issues.add(new ExistingTimetableImportIssueDTO(1, "ERROR", requiredHeader, "Missing required column: " + titleCase(requiredHeader)));
                     }
                 }
-                if (!issues.isEmpty()) return buildImportResponse(null, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
+                if (!issues.isEmpty()) return buildImportResponse(importBatchId, safeSchoolId, rows, issues, List.of(), "VALIDATION_FAILED", null);
                 for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
                     Row row = sheet.getRow(rowIndex);
                     if (row == null) continue;
@@ -1014,12 +1015,11 @@ public class TimetableGenerationService {
         request.setPreventConsecutiveLabsEnabled(false);
         List<TimetableConflictDTO> conflicts = detectConflicts(entries, request);
         conflicts.forEach(conflict -> issues.add(new ExistingTimetableImportIssueDTO(conflict.getPeriodNumber(), "ERROR", "Teacher/Class Conflict", "Teacher Conflicts", conflict.getTitle() + " - " + conflict.getDescription())));
-        String importBatchId = "IMP-TT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         ExistingTimetableImportResponseDTO response = buildImportResponse(importBatchId, safeSchoolId, rows, issues, conflicts, conflicts.isEmpty() && issues.stream().noneMatch(i -> "ERROR".equalsIgnoreCase(i.getSeverity())) ? "VALIDATED" : "VALIDATION_FAILED", entries);
         attachStoredFileMetadata(response, storedFile);
         saveTimetableImportFileMetadata(safeSchoolId, uploadedBy, importBatchId, response.getStatus(), storedFile);
         existingTimetableImports.put(importBatchId, response);
-        if (Boolean.TRUE.equals(response.getCanPublish())) {
+        if (entries != null && !entries.isEmpty()) {
             TimetableGenerationResponseDTO batch = new TimetableGenerationResponseDTO();
             batch.setGeneratedBatchId(importBatchId);
             batch.setEntries(entries);
@@ -1027,22 +1027,23 @@ public class TimetableGenerationService {
             generatedBatches.put(importBatchId, batch);
             batchSchoolIds.put(importBatchId, safeSchoolId);
             latestBatchId = importBatchId;
-            addVersion(importBatchId, isBlank(uploadedBy) ? "ADMIN" : uploadedBy, "EXISTING_TIMETABLE_IMPORTED", entries.size(), "Existing school timetable imported from Excel and converted into VidyaSetu timetable format.");
-            addNotification(importBatchId, "ADMIN_PRINCIPAL", "Existing timetable validated", "Imported timetable is ready for Admin/Principal preview and publish.");
+            String actor = isBlank(uploadedBy) ? "ADMIN" : uploadedBy;
+            String event = Boolean.TRUE.equals(response.getCanPublish()) ? "EXISTING_TIMETABLE_IMPORTED" : "EXISTING_TIMETABLE_NEEDS_CORRECTION";
+            String note = Boolean.TRUE.equals(response.getCanPublish())
+                    ? "Existing school timetable imported from Excel and converted into VidyaSetu timetable format."
+                    : "Existing timetable imported with blocking validation errors for Timetable Operations review.";
+            addVersion(importBatchId, actor, event, entries.size(), note);
+            addNotification(importBatchId, "ADMIN_PRINCIPAL", Boolean.TRUE.equals(response.getCanPublish()) ? "Existing timetable validated" : "Existing timetable needs correction", Boolean.TRUE.equals(response.getCanPublish()) ? "Imported timetable is ready for Admin/Principal preview and publish." : "Open Timetable Operations with batch " + importBatchId + " to review conflicts and corrections.");
         }
         return response;
     }
 
     public ExistingTimetableImportStatusDTO existingTimetableImportStatus(String schoolId) {
         String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
-        String activeBatchId = activePublishedBatchBySchool.get(safeSchoolId);
-        ExistingTimetableImportResponseDTO latest = !isBlank(activeBatchId) ? existingTimetableImports.get(activeBatchId) : null;
-        if (latest == null) {
-            latest = existingTimetableImports.values().stream()
-                    .filter(item -> safeSchoolId.equalsIgnoreCase(item.getSchoolId()))
-                    .reduce((first, second) -> second)
-                    .orElse(null);
-        }
+        ExistingTimetableImportResponseDTO latest = existingTimetableImports.values().stream()
+                .filter(item -> safeSchoolId.equalsIgnoreCase(item.getSchoolId()))
+                .reduce((first, second) -> second)
+                .orElse(null);
         ExistingTimetableImportStatusDTO status = new ExistingTimetableImportStatusDTO();
         status.setSchoolId(safeSchoolId);
         if (latest == null) {
@@ -1070,9 +1071,9 @@ public class TimetableGenerationService {
             status.setLabel("Imported – Ready to Publish");
             status.setMessage("Imported timetable validation is complete. Admin/Principal can publish after review.");
         } else {
-            status.setStatus("VALIDATION_PENDING");
-            status.setLabel("Imported – Validation Pending");
-            status.setMessage("Imported timetable requires correction before publish.");
+            status.setStatus("VALIDATION_FAILED");
+            status.setLabel("Imported – Validation Failed");
+            status.setMessage("Imported timetable requires correction before publish. Use the import batch ID in Timetable Operations for repair/manual review.");
         }
         return status;
     }
