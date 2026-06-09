@@ -170,7 +170,7 @@ public class TimetableGenerationController {
             @RequestParam(required = false) String section,
             @RequestHeader(value = "X-School-Id", required = false) String schoolId
     ) {
-        return timetableGenerationService.liveTimetable(batchId, role, teacherId, teacherName, className, section);
+        return timetableGenerationService.liveTimetable(batchId, role, teacherId, teacherName, className, section, schoolId);
     }
 
     @GetMapping("/live/teacher")
@@ -180,7 +180,7 @@ public class TimetableGenerationController {
             @RequestParam(required = false) String teacherName,
             @RequestHeader(value = "X-School-Id", required = false) String schoolId
     ) {
-        return timetableGenerationService.liveTimetable(batchId, "TEACHER", teacherId, teacherName, null, null);
+        return timetableGenerationService.liveTimetable(batchId, "TEACHER", teacherId, teacherName, null, null, schoolId);
     }
 
     @GetMapping("/live/student")
@@ -190,7 +190,7 @@ public class TimetableGenerationController {
             @RequestParam(required = false) String section,
             @RequestHeader(value = "X-School-Id", required = false) String schoolId
     ) {
-        return timetableGenerationService.liveTimetable(batchId, "STUDENT", null, null, className, section);
+        return timetableGenerationService.liveTimetable(batchId, "STUDENT", null, null, className, section, schoolId);
     }
 
     @GetMapping("/live/parent")
@@ -200,7 +200,7 @@ public class TimetableGenerationController {
             @RequestParam(required = false) String section,
             @RequestHeader(value = "X-School-Id", required = false) String schoolId
     ) {
-        return timetableGenerationService.liveTimetable(batchId, "PARENT", null, null, className, section);
+        return timetableGenerationService.liveTimetable(batchId, "PARENT", null, null, className, section, schoolId);
     }
 
     @PostMapping({"/operations/publish/{batchId}", "/visibility/publish/{batchId}"})

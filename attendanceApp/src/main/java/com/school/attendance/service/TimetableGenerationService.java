@@ -75,6 +75,8 @@ public class TimetableGenerationService {
     private final Map<String, List<TimetableNotificationDTO>> timetableNotifications = new ConcurrentHashMap<>();
     private final Map<String, TimetableArchiveSummaryDTO> archiveHistory = new ConcurrentHashMap<>();
     private final Map<String, ExistingTimetableImportResponseDTO> existingTimetableImports = new ConcurrentHashMap<>();
+    private final Map<String, String> batchSchoolIds = new ConcurrentHashMap<>();
+    private final Map<String, String> activePublishedBatchBySchool = new ConcurrentHashMap<>();
     private volatile String latestBatchId;
     private volatile String latestPublishedBatchId;
 
@@ -635,12 +637,15 @@ public class TimetableGenerationService {
                 notificationMessage
         );
         if (success) {
+            String schoolId = batchSchoolIds.getOrDefault(batch.getGeneratedBatchId(), "DEMO");
+            archivePreviousActiveTimetable(schoolId, batch.getGeneratedBatchId(), publishedAt, approvedBy);
             latestPublishedBatchId = batch.getGeneratedBatchId();
+            activePublishedBatchBySchool.put(schoolId, batch.getGeneratedBatchId());
             publishLocks.put(batch.getGeneratedBatchId(), true);
             updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), "PUBLISHED");
-            addVersion(batch.getGeneratedBatchId(), approvedBy, "PUBLISHED_LOCKED", batch.getEntries().size(), "Published timetable locked for production visibility.");
+            addVersion(batch.getGeneratedBatchId(), approvedBy, "PUBLISHED_LOCKED", batch.getEntries().size(), "Published timetable locked as the one ACTIVE timetable for this school.");
             addNotification(batch.getGeneratedBatchId(), "TEACHERS_STUDENTS_PARENTS", "New timetable published", notificationMessage);
-            archiveHistory.put(batch.getGeneratedBatchId(), new TimetableArchiveSummaryDTO(batch.getGeneratedBatchId(), publishedAt, approvedBy, batch.getEntries().size(), "PUBLISHED_ARCHIVED", "Published timetable snapshot archived for Day 18 history."));
+            archiveHistory.put(batch.getGeneratedBatchId(), new TimetableArchiveSummaryDTO(batch.getGeneratedBatchId(), publishedAt, approvedBy, batch.getEntries().size(), "ACTIVE", "Current active published timetable for school " + schoolId + "."));
             TimetablePublishAuditDTO audit = new TimetablePublishAuditDTO(
                     "PUB-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
                     batch.getGeneratedBatchId(),
@@ -797,17 +802,22 @@ public class TimetableGenerationService {
     }
 
     public TimetableLiveResponseDTO liveTimetable(String batchId, String role, Long teacherId, String teacherName, String className, String section) {
-        String safeRole = isBlank(role) ? "ADMIN" : role.trim().toUpperCase();
-        String publishedBatchId = resolveLatestPublishedBatchId();
-        String targetBatchId = isBlank(batchId) && !isAdminRole(safeRole) ? publishedBatchId : (isBlank(batchId) ? publishedBatchId : batchId);
+        return liveTimetable(batchId, role, teacherId, teacherName, className, section, null);
+    }
 
-        if (!isAdminRole(safeRole) && isBlank(targetBatchId)) {
-            return new TimetableLiveResponseDTO(null, safeRole, safeRole, false, false, "Timetable is not published yet. Draft timetables are hidden for Teacher, Student, and Parent roles.", List.of());
+    public TimetableLiveResponseDTO liveTimetable(String batchId, String role, Long teacherId, String teacherName, String className, String section, String schoolId) {
+        String safeRole = isBlank(role) ? "ADMIN" : role.trim().toUpperCase();
+        String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        String publishedBatchId = resolveLatestPublishedBatchId(safeSchoolId);
+        String targetBatchId = isBlank(batchId) ? publishedBatchId : batchId;
+
+        if (isBlank(targetBatchId)) {
+            return new TimetableLiveResponseDTO(null, safeRole, safeRole, false, false, "No published imported timetable is active yet. Existing timetable screens remain safe and hidden until publish.", List.of());
         }
 
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(targetBatchId);
         refreshBatch(batch);
-        boolean published = batch.getGeneratedBatchId().equals(publishedBatchId) || Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
+        boolean published = batch.getGeneratedBatchId().equals(publishedBatchId) && Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
         List<TimetableEntryDTO> filtered = new ArrayList<>(batch.getEntries());
         if ("TEACHER".equals(safeRole)) {
             if (teacherId != null) {
@@ -1015,6 +1025,7 @@ public class TimetableGenerationService {
             batch.setEntries(entries);
             refreshBatch(batch);
             generatedBatches.put(importBatchId, batch);
+            batchSchoolIds.put(importBatchId, safeSchoolId);
             latestBatchId = importBatchId;
             addVersion(importBatchId, isBlank(uploadedBy) ? "ADMIN" : uploadedBy, "EXISTING_TIMETABLE_IMPORTED", entries.size(), "Existing school timetable imported from Excel and converted into VidyaSetu timetable format.");
             addNotification(importBatchId, "ADMIN_PRINCIPAL", "Existing timetable validated", "Imported timetable is ready for Admin/Principal preview and publish.");
@@ -1024,10 +1035,14 @@ public class TimetableGenerationService {
 
     public ExistingTimetableImportStatusDTO existingTimetableImportStatus(String schoolId) {
         String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
-        ExistingTimetableImportResponseDTO latest = existingTimetableImports.values().stream()
-                .filter(item -> safeSchoolId.equalsIgnoreCase(item.getSchoolId()))
-                .reduce((first, second) -> second)
-                .orElse(null);
+        String activeBatchId = activePublishedBatchBySchool.get(safeSchoolId);
+        ExistingTimetableImportResponseDTO latest = !isBlank(activeBatchId) ? existingTimetableImports.get(activeBatchId) : null;
+        if (latest == null) {
+            latest = existingTimetableImports.values().stream()
+                    .filter(item -> safeSchoolId.equalsIgnoreCase(item.getSchoolId()))
+                    .reduce((first, second) -> second)
+                    .orElse(null);
+        }
         ExistingTimetableImportStatusDTO status = new ExistingTimetableImportStatusDTO();
         status.setSchoolId(safeSchoolId);
         if (latest == null) {
@@ -1103,7 +1118,18 @@ public class TimetableGenerationService {
     }
 
     private String resolveLatestPublishedBatchId() {
-        if (!isBlank(latestPublishedBatchId) && generatedBatches.containsKey(latestPublishedBatchId)) {
+        return resolveLatestPublishedBatchId(null);
+    }
+
+    private String resolveLatestPublishedBatchId(String schoolId) {
+        String safeSchoolId = isBlank(schoolId) ? null : schoolId.trim().toUpperCase();
+        if (safeSchoolId != null) {
+            String activeForSchool = activePublishedBatchBySchool.get(safeSchoolId);
+            if (!isBlank(activeForSchool) && generatedBatches.containsKey(activeForSchool) && Boolean.TRUE.equals(publishLocks.get(activeForSchool))) {
+                return activeForSchool;
+            }
+        }
+        if (!isBlank(latestPublishedBatchId) && generatedBatches.containsKey(latestPublishedBatchId) && Boolean.TRUE.equals(publishLocks.get(latestPublishedBatchId))) {
             return latestPublishedBatchId;
         }
         return publishLocks.entrySet().stream()
@@ -1111,6 +1137,27 @@ public class TimetableGenerationService {
                 .map(Map.Entry::getKey)
                 .reduce((first, second) -> second)
                 .orElse(null);
+    }
+
+    private void archivePreviousActiveTimetable(String schoolId, String newBatchId, String archivedAt, String approvedBy) {
+        String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        String previousBatchId = activePublishedBatchBySchool.get(safeSchoolId);
+        if (isBlank(previousBatchId) || previousBatchId.equals(newBatchId)) return;
+        publishLocks.put(previousBatchId, false);
+        TimetableGenerationResponseDTO previous = generatedBatches.get(previousBatchId);
+        int entries = previous == null || previous.getEntries() == null ? 0 : previous.getEntries().size();
+        archiveHistory.put(previousBatchId, new TimetableArchiveSummaryDTO(previousBatchId, archivedAt, approvedBy, entries, "ARCHIVED", "Archived automatically because a newer timetable is ACTIVE for school " + safeSchoolId + "."));
+        updateTimetableImportFileMetadataStatus(previousBatchId, "ARCHIVED");
+        ExistingTimetableImportResponseDTO previousImport = existingTimetableImports.get(previousBatchId);
+        if (previousImport != null) {
+            previousImport.setStatus("ARCHIVED");
+            previousImport.setMessage("Archived automatically because a newer imported timetable was published.");
+        }
+    }
+
+    public List<TimetableEntryDTO> activePublishedPeriods(String schoolId, String role, Long teacherId, String teacherName, String className, String section) {
+        TimetableLiveResponseDTO live = liveTimetable(null, role, teacherId, teacherName, className, section, schoolId);
+        return live.getEntries() == null ? List.of() : live.getEntries();
     }
 
     private void attachStoredFileMetadata(ExistingTimetableImportResponseDTO response, StoredFile storedFile) {

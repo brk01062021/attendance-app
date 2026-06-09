@@ -9,6 +9,7 @@ import com.school.attendance.entity.Student;
 import com.school.attendance.repository.AttendanceRepository;
 import com.school.attendance.repository.NotificationRepository;
 import com.school.attendance.repository.StudentRepository;
+import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -25,15 +26,32 @@ public class AttendanceController {
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
     private final NotificationRepository notificationRepository;
+    private final TimetableGenerationService timetableGenerationService;
 
     public AttendanceController(
             AttendanceRepository attendanceRepository,
             StudentRepository studentRepository,
-            NotificationRepository notificationRepository
+            NotificationRepository notificationRepository,
+            TimetableGenerationService timetableGenerationService
     ) {
         this.attendanceRepository = attendanceRepository;
         this.studentRepository = studentRepository;
         this.notificationRepository = notificationRepository;
+        this.timetableGenerationService = timetableGenerationService;
+    }
+
+    @GetMapping("/active-periods")
+    public List<TimetableEntryDTO> getActivePublishedPeriodsForAttendance(
+            @RequestHeader(value = "X-School-Id", required = false) String headerSchoolId,
+            @RequestParam(required = false) String schoolId,
+            @RequestParam(defaultValue = "TEACHER") String role,
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) String teacherName,
+            @RequestParam(required = false) String className,
+            @RequestParam(required = false) String section
+    ) {
+        String effectiveSchoolId = schoolId != null && !schoolId.isBlank() ? schoolId : headerSchoolId;
+        return timetableGenerationService.activePublishedPeriods(effectiveSchoolId, role, teacherId, teacherName, className, section);
     }
 
     @GetMapping
