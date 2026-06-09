@@ -103,12 +103,27 @@ public class TimetableGenerationController {
         return timetableGenerationService.repair(batchId);
     }
 
-    @PostMapping("/manual-edit/{batchId}")
+    @GetMapping({"/manual-edit/{batchId}", "/operations/manual-edit/{batchId}"})
+    public TimetableGenerationResponseDTO openManualEdit(@PathVariable String batchId) {
+        return timetableGenerationService.openManualEdit(batchId);
+    }
+
+    @PostMapping({"/manual-edit/{batchId}", "/operations/manual-edit/{batchId}"})
     public TimetableGenerationResponseDTO manualEdit(
             @PathVariable String batchId,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestParam(required = false) String editedBy,
             @RequestBody TimetableManualEditRequestDTO request
     ) {
-        return timetableGenerationService.manualEdit(batchId, request);
+        return timetableGenerationService.manualEdit(batchId, request, role, editedBy);
+    }
+
+    @PostMapping({"/revalidate/{batchId}", "/operations/revalidate/{batchId}"})
+    public TimetableGenerationResponseDTO revalidateBatch(
+            @PathVariable String batchId,
+            @RequestParam(defaultValue = "ADMIN") String role
+    ) {
+        return timetableGenerationService.revalidateBatch(batchId, role);
     }
 
     @PostMapping("/publish/{batchId}")

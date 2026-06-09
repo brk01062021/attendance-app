@@ -584,31 +584,113 @@ public class TimetableGenerationService {
         return result;
     }
 
-    public TimetableGenerationResponseDTO manualEdit(String batchId, TimetableManualEditRequestDTO request) {
+    public TimetableGenerationResponseDTO openManualEdit(String batchId) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        refreshBatch(batch);
+        return batch;
+    }
+
+    public TimetableGenerationResponseDTO manualEdit(String batchId, TimetableManualEditRequestDTO request) {
+        return manualEdit(batchId, request, "ADMIN", null);
+    }
+
+    public TimetableGenerationResponseDTO manualEdit(String batchId, TimetableManualEditRequestDTO request, String role, String editedBy) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        if (!isAdminRole(role)) {
+            addVersion(batch.getGeneratedBatchId(), "SYSTEM", "MANUAL_EDIT_DENIED", batch.getEntries().size(), "Manual edit denied because only Admin/Principal can edit timetable batches.");
+            return batch;
+        }
         if (Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()))) {
+            addVersion(batch.getGeneratedBatchId(), actorName(role, editedBy), "MANUAL_EDIT_BLOCKED", batch.getEntries().size(), "Published timetable is locked. Manual edit must operate on an unlocked batch version only.");
             return batch;
         }
         if (request == null || isBlank(request.getEntryId())) return batch;
+
+        String actor = actorName(role, editedBy);
+        String editNote = "Manual edit requested for entry " + request.getEntryId() + ".";
         for (TimetableEntryDTO entry : batch.getEntries()) {
             if (request.getEntryId().equals(String.valueOf(entry.getId()))) {
-                if (!isBlank(request.getSubjectName())) entry.setSubjectName(request.getSubjectName());
-                if (request.getTeacherId() != null) entry.setTeacherId(request.getTeacherId());
-                if (!isBlank(request.getTeacherName())) entry.setTeacherName(request.getTeacherName());
-                if (!isBlank(request.getDayOfWeek())) entry.setDayOfWeek(request.getDayOfWeek());
-                if (request.getPeriodNumber() != null) entry.setPeriodNumber(request.getPeriodNumber());
-                if (!isBlank(request.getRoomNumber())) entry.setRoomNumber(request.getRoomNumber());
-                if (!isBlank(request.getStartTime())) entry.setStartTime(request.getStartTime());
-                if (!isBlank(request.getEndTime())) entry.setEndTime(request.getEndTime());
+                List<String> changes = new ArrayList<>();
+                if (!isBlank(request.getSubjectName()) && !equalsText(entry.getSubjectName(), request.getSubjectName())) {
+                    changes.add("Subject: " + entry.getSubjectName() + " → " + request.getSubjectName().trim());
+                    entry.setSubjectName(request.getSubjectName().trim());
+                }
+                if (request.getTeacherId() != null && !request.getTeacherId().equals(entry.getTeacherId())) {
+                    changes.add("Teacher ID: " + entry.getTeacherId() + " → " + request.getTeacherId());
+                    entry.setTeacherId(request.getTeacherId());
+                }
+                if (!isBlank(request.getTeacherName()) && !equalsText(entry.getTeacherName(), request.getTeacherName())) {
+                    changes.add("Teacher: " + entry.getTeacherName() + " → " + request.getTeacherName().trim());
+                    entry.setTeacherName(request.getTeacherName().trim());
+                }
+                if (!isBlank(request.getDayOfWeek()) && !equalsText(entry.getDayOfWeek(), request.getDayOfWeek())) {
+                    changes.add("Day: " + entry.getDayOfWeek() + " → " + normalizeDay(request.getDayOfWeek()));
+                    entry.setDayOfWeek(normalizeDay(request.getDayOfWeek()));
+                }
+                if (request.getPeriodNumber() != null && !request.getPeriodNumber().equals(entry.getPeriodNumber())) {
+                    changes.add("Period: " + entry.getPeriodNumber() + " → " + request.getPeriodNumber());
+                    entry.setPeriodNumber(request.getPeriodNumber());
+                }
+                if (!isBlank(request.getRoomNumber()) && !equalsText(entry.getRoomNumber(), request.getRoomNumber())) {
+                    changes.add("Room: " + entry.getRoomNumber() + " → " + request.getRoomNumber().trim());
+                    entry.setRoomNumber(request.getRoomNumber().trim());
+                }
+                if (!isBlank(request.getStartTime())) entry.setStartTime(request.getStartTime().trim());
+                if (!isBlank(request.getEndTime())) entry.setEndTime(request.getEndTime().trim());
                 entry.setIsLab("Computer".equalsIgnoreCase(entry.getSubjectName()) || "Science Lab".equalsIgnoreCase(entry.getSubjectName()));
                 entry.setIsSports("Sports".equalsIgnoreCase(entry.getSubjectName()));
+                editNote = changes.isEmpty() ? "Manual edit opened with no field changes for entry " + entry.getId() + "." : String.join("; ", changes);
                 break;
             }
         }
         refreshBatch(batch);
         generatedBatches.put(batch.getGeneratedBatchId(), batch);
-        addVersion(batch.getGeneratedBatchId(), "Principal/Admin", "MANUAL_EDIT", batch.getEntries().size(), "Manual timetable edit/swap saved.");
+        syncExistingImportAfterRevalidation(batch, "MANUAL_EDIT_SAVED");
+        addVersion(batch.getGeneratedBatchId(), actor, "MANUAL_EDIT_SAVED", batch.getEntries().size(), editNote + " Revalidated: " + batchStatus(batch) + " (" + batch.getConflictsDetected() + " conflict(s), " + batch.getCompletionPercentage() + "% ready).");
         return batch;
+    }
+
+    public TimetableGenerationResponseDTO revalidateBatch(String batchId, String role) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        if (!isAdminRole(role)) return batch;
+        refreshBatch(batch);
+        generatedBatches.put(batch.getGeneratedBatchId(), batch);
+        syncExistingImportAfterRevalidation(batch, "REVALIDATED");
+        addVersion(batch.getGeneratedBatchId(), actorName(role, null), "BATCH_REVALIDATED", batch.getEntries().size(), "Manual edit batch revalidated. Status: " + batchStatus(batch) + "; conflicts: " + batch.getConflictsDetected() + "; readiness: " + batch.getCompletionPercentage() + "%. Publish remains disabled until zero blocking conflicts.");
+        return batch;
+    }
+
+
+    private String actorName(String role, String name) {
+        if (!isBlank(name)) return name.trim();
+        return "PRINCIPAL".equalsIgnoreCase(role) ? "Principal" : "Admin";
+    }
+
+    private String batchStatus(TimetableGenerationResponseDTO batch) {
+        if (batch == null) return "REVIEW";
+        if (Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId())) && batch.getGeneratedBatchId().equals(latestPublishedBatchId)) return "PUBLISHED";
+        if (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0) return "NEEDS_CORRECTION";
+        return batch.getCompletionPercentage() != null && batch.getCompletionPercentage() >= 100 ? "READY_TO_PUBLISH" : "REVIEW";
+    }
+
+    private void syncExistingImportAfterRevalidation(TimetableGenerationResponseDTO batch, String event) {
+        if (batch == null || isBlank(batch.getGeneratedBatchId())) return;
+        ExistingTimetableImportResponseDTO imported = existingTimetableImports.get(batch.getGeneratedBatchId());
+        if (imported == null) return;
+        int conflicts = batch.getConflictsDetected() == null ? 0 : batch.getConflictsDetected();
+        imported.setPreviewEntries(batch.getEntries());
+        imported.setConflicts(batch.getConflicts());
+        imported.setConflictsDetected(conflicts);
+        imported.setAcceptedRows(batch.getEntries() == null ? 0 : batch.getEntries().size());
+        imported.setTotalPeriodAllocations(batch.getEntries() == null ? 0 : batch.getEntries().size());
+        imported.setErrorCount(conflicts);
+        imported.setValid(conflicts == 0);
+        imported.setCanPublish(conflicts == 0);
+        imported.setStatus(conflicts == 0 ? "READY_TO_PUBLISH" : "NEEDS_CORRECTION");
+        imported.setMessage(conflicts == 0
+                ? "Manual edits saved and revalidated. Imported timetable is ready to publish."
+                : "Manual edits saved to the batch only. Blocking conflicts remain, so publish is disabled.");
+        updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), imported.getStatus());
     }
 
     public TimetablePublishResponseDTO publish(String batchId) {
@@ -846,7 +928,7 @@ public class TimetableGenerationService {
 
     public TimetableGenerationResponseDTO swapTimetableEntry(String batchId, TimetableManualEditRequestDTO request, String role) {
         if (!isAdminRole(role)) return findBatchOrCreateFallback(batchId);
-        return manualEdit(batchId, request);
+        return manualEdit(batchId, request, role, null);
     }
 
     public TimetableBinaryExportDTO binaryExport(String batchId, String format) {
