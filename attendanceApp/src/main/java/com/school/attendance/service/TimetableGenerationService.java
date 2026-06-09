@@ -638,6 +638,7 @@ public class TimetableGenerationService {
         );
         if (success) {
             String schoolId = batchSchoolIds.getOrDefault(batch.getGeneratedBatchId(), "DEMO");
+            String previousActiveBatchId = activePublishedBatchBySchool.get(schoolId);
             archivePreviousActiveTimetable(schoolId, batch.getGeneratedBatchId(), publishedAt, approvedBy);
             latestPublishedBatchId = batch.getGeneratedBatchId();
             activePublishedBatchBySchool.put(schoolId, batch.getGeneratedBatchId());
@@ -655,7 +656,9 @@ public class TimetableGenerationService {
                     response.getPublishedEntries(),
                     response.getRemainingConflicts(),
                     batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
-                    response.getMessage()
+                    response.getMessage(),
+                    previousActiveBatchId,
+                    batch.getGeneratedBatchId()
             );
             publishAudits.computeIfAbsent(batch.getGeneratedBatchId(), key -> new ArrayList<>()).add(0, audit);
         }
@@ -671,42 +674,13 @@ public class TimetableGenerationService {
     public List<TimetableBatchSummaryDTO> listBatches() {
         List<TimetableBatchSummaryDTO> summaries = generatedBatches.values().stream()
                 .sorted(Comparator.comparing(TimetableGenerationResponseDTO::getGeneratedBatchId).reversed())
-                .map(batch -> {
-                    refreshBatch(batch);
-                    List<TimetablePublishAuditDTO> audits = publishAudits.getOrDefault(batch.getGeneratedBatchId(), List.of());
-                    TimetablePublishAuditDTO latestAudit = audits.isEmpty() ? null : audits.get(0);
-                    String status = latestAudit != null ? latestAudit.getStatus() : (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0 ? "REVIEW_REQUIRED" : "GENERATED_READY");
-                    String message = latestAudit != null ? latestAudit.getMessage() : ("Generated batch ready for review: " + batch.getGeneratedBatchId());
-                    return new TimetableBatchSummaryDTO(
-                            batch.getGeneratedBatchId(),
-                            status,
-                            batch.getTotalEntries(),
-                            batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
-                            batch.getConflictsDetected(),
-                            batch.getOverloadRiskTeachers(),
-                            batch.getCompletionPercentage(),
-                            latestAudit == null ? null : latestAudit.getPublishedAt(),
-                            latestAudit == null ? null : latestAudit.getApprovedBy(),
-                            message
-                    );
-                })
+                .map(this::toBatchSummary)
                 .collect(Collectors.toCollection(ArrayList::new));
 
         if (summaries.isEmpty()) {
             TimetableGenerationResponseDTO fallback = findBatchOrCreateFallback(latestBatchId);
             refreshBatch(fallback);
-            summaries.add(new TimetableBatchSummaryDTO(
-                    fallback.getGeneratedBatchId(),
-                    "DEMO_READY",
-                    fallback.getTotalEntries(),
-                    fallback.getClassSectionReviews() == null ? 0 : fallback.getClassSectionReviews().size(),
-                    fallback.getConflictsDetected(),
-                    fallback.getOverloadRiskTeachers(),
-                    fallback.getCompletionPercentage(),
-                    null,
-                    null,
-                    "Demo fallback batch created for mobile validation."
-            ));
+            summaries.add(toBatchSummary(fallback));
         }
         return summaries;
     }
@@ -715,18 +689,35 @@ public class TimetableGenerationService {
     public TimetableBatchSummaryDTO batchSummary(String batchId) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
         refreshBatch(batch);
+        return toBatchSummary(batch);
+    }
 
+    private TimetableBatchSummaryDTO toBatchSummary(TimetableGenerationResponseDTO batch) {
+        refreshBatch(batch);
         List<TimetablePublishAuditDTO> audits = publishAudits.getOrDefault(batch.getGeneratedBatchId(), List.of());
         TimetablePublishAuditDTO latestAudit = audits.isEmpty() ? null : audits.get(0);
-
-        String status = latestAudit != null
-                ? latestAudit.getStatus()
-                : (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0 ? "REVIEW_REQUIRED" : "GENERATED_READY");
-
+        boolean locked = Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
+        boolean latestPublished = batch.getGeneratedBatchId().equals(latestPublishedBatchId);
+        boolean archived = archiveHistory.containsKey(batch.getGeneratedBatchId()) && !latestPublished;
+        String status;
+        if (latestPublished && locked) {
+            status = "PUBLISHED_ACTIVE";
+        } else if (archived) {
+            status = "ARCHIVED";
+        } else if (latestAudit != null) {
+            status = latestAudit.getStatus();
+        } else if (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0) {
+            status = "NEEDS_CORRECTION";
+        } else {
+            status = "READY_TO_PUBLISH";
+        }
         String message = latestAudit != null
                 ? latestAudit.getMessage()
-                : "Generated batch ready for review: " + batch.getGeneratedBatchId();
-
+                : (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0
+                   ? "Batch has blocking conflicts. Use Auto Conflict Repair or Manual Edit before publishing."
+                   : "Batch is ready for Admin/Principal publish review.");
+        String uploadedAt = versions(batch.getGeneratedBatchId()).stream().reduce((first, second) -> first).map(TimetableVersionDTO::getCreatedAt).orElse(null);
+        String uploadedBy = versions(batch.getGeneratedBatchId()).stream().reduce((first, second) -> first).map(TimetableVersionDTO::getCreatedBy).orElse(null);
         return new TimetableBatchSummaryDTO(
                 batch.getGeneratedBatchId(),
                 status,
@@ -737,7 +728,12 @@ public class TimetableGenerationService {
                 batch.getCompletionPercentage(),
                 latestAudit == null ? null : latestAudit.getPublishedAt(),
                 latestAudit == null ? null : latestAudit.getApprovedBy(),
-                message
+                message,
+                uploadedAt,
+                uploadedBy,
+                locked,
+                latestPublished,
+                archived
         );
     }
 
@@ -888,6 +884,76 @@ public class TimetableGenerationService {
         TimetableVersionDTO version = addVersion(batch.getGeneratedBatchId(), role, "ROLLBACK_READY", batch.getEntries().size(), "Rollback marker created for version " + versionNumber + ". Timetable unlocked for review/edit before republish.");
         addNotification(batch.getGeneratedBatchId(), "ADMIN_PRINCIPAL", "Timetable rollback started", "Batch " + batch.getGeneratedBatchId() + " moved back to review mode.");
         return version;
+    }
+
+    public List<TimetablePublishAuditDTO> publishHistoryAll() {
+        return publishAudits.values().stream()
+                .flatMap(List::stream)
+                .sorted(Comparator.comparing(TimetablePublishAuditDTO::getPublishedAt, Comparator.nullsLast(String::compareToIgnoreCase)).reversed())
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    public TimetablePublishAuditDTO rollbackToPublishedBatch(String batchId, String role, String approvedByName) {
+        TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
+        refreshBatch(batch);
+        String safeRole = isBlank(role) ? "ADMIN" : role.trim().toUpperCase();
+        String approvedBy = isBlank(approvedByName) ? safeRole : approvedByName.trim();
+        if (!isAdminRole(safeRole)) {
+            return new TimetablePublishAuditDTO(
+                    "RBAC-DENIED",
+                    batch.getGeneratedBatchId(),
+                    "RBAC_DENIED",
+                    null,
+                    approvedBy,
+                    0,
+                    batch.getConflictsDetected(),
+                    batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
+                    "Only Admin or Principal can restore an archived published timetable.",
+                    null,
+                    null
+            );
+        }
+        if (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0) {
+            return new TimetablePublishAuditDTO(
+                    "ROLLBACK-BLOCKED",
+                    batch.getGeneratedBatchId(),
+                    "BLOCKED_BY_CONFLICTS",
+                    null,
+                    approvedBy,
+                    0,
+                    batch.getConflictsDetected(),
+                    batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
+                    "Rollback to active is blocked because this batch still has conflicts.",
+                    null,
+                    null
+            );
+        }
+        String schoolId = batchSchoolIds.getOrDefault(batch.getGeneratedBatchId(), "DEMO");
+        String restoredAt = LocalDateTime.now().toString();
+        String previousActiveBatchId = activePublishedBatchBySchool.get(schoolId);
+        archivePreviousActiveTimetable(schoolId, batch.getGeneratedBatchId(), restoredAt, approvedBy);
+        latestPublishedBatchId = batch.getGeneratedBatchId();
+        activePublishedBatchBySchool.put(schoolId, batch.getGeneratedBatchId());
+        publishLocks.put(batch.getGeneratedBatchId(), true);
+        updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), "PUBLISHED");
+        TimetablePublishAuditDTO audit = new TimetablePublishAuditDTO(
+                "ROLL-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
+                batch.getGeneratedBatchId(),
+                "ROLLBACK_ACTIVE",
+                restoredAt,
+                approvedBy,
+                batch.getEntries().size(),
+                0,
+                batch.getClassSectionReviews() == null ? 0 : batch.getClassSectionReviews().size(),
+                "Rollback completed. Previous published batch restored as the active timetable.",
+                previousActiveBatchId,
+                batch.getGeneratedBatchId()
+        );
+        publishAudits.computeIfAbsent(batch.getGeneratedBatchId(), key -> new ArrayList<>()).add(0, audit);
+        addVersion(batch.getGeneratedBatchId(), approvedBy, "ROLLBACK_ACTIVE", batch.getEntries().size(), "Archived published batch restored as the active school timetable.");
+        addNotification(batch.getGeneratedBatchId(), "ADMIN_PRINCIPAL", "Timetable rollback completed", "Batch " + batch.getGeneratedBatchId() + " is now the active published timetable.");
+        archiveHistory.put(batch.getGeneratedBatchId(), new TimetableArchiveSummaryDTO(batch.getGeneratedBatchId(), restoredAt, approvedBy, batch.getEntries().size(), "ACTIVE", "Current active published timetable for school " + schoolId + "."));
+        return audit;
     }
 
     public List<TimetableNotificationDTO> notifications(String batchId) {

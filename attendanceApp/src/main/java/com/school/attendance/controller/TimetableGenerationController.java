@@ -119,9 +119,14 @@ public class TimetableGenerationController {
         return timetableGenerationService.publish(batchId, approvedBy);
     }
 
-    @GetMapping("/publish-history/{batchId}")
+    @GetMapping({"/publish-history/{batchId}", "/operations/publish-history/{batchId}"})
     public List<TimetablePublishAuditDTO> publishHistory(@PathVariable String batchId) {
         return timetableGenerationService.publishHistory(batchId);
+    }
+
+    @GetMapping("/operations/publish-history")
+    public List<TimetablePublishAuditDTO> publishHistoryAll() {
+        return timetableGenerationService.publishHistoryAll();
     }
 
     @GetMapping("/latest-published")
@@ -129,12 +134,12 @@ public class TimetableGenerationController {
         return timetableGenerationService.latestPublished();
     }
 
-    @GetMapping("/batches")
+    @GetMapping({"/batches", "/operations/batches"})
     public List<TimetableBatchSummaryDTO> batches() {
         return timetableGenerationService.listBatches();
     }
 
-    @GetMapping("/batch-summary/{batchId}")
+    @GetMapping({"/batch-summary/{batchId}", "/operations/batch-summary/{batchId}"})
     public TimetableBatchSummaryDTO batchSummary(@PathVariable String batchId) {
         return timetableGenerationService.batchSummary(batchId);
     }
@@ -250,6 +255,16 @@ public class TimetableGenerationController {
             @RequestParam(defaultValue = "ADMIN") String role
     ) {
         return timetableGenerationService.rollback(batchId, versionNumber, role);
+    }
+
+
+    @PostMapping("/operations/rollback-to-active/{batchId}")
+    public TimetablePublishAuditDTO rollbackToActive(
+            @PathVariable String batchId,
+            @RequestParam(defaultValue = "ADMIN") String role,
+            @RequestParam(required = false) String approvedBy
+    ) {
+        return timetableGenerationService.rollbackToPublishedBatch(batchId, role, approvedBy);
     }
 
     @GetMapping({"/day18/notifications/{batchId}", "/operations/notifications/{batchId}"})

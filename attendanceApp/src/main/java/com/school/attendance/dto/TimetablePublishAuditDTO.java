@@ -10,6 +10,8 @@ public class TimetablePublishAuditDTO {
     private Integer remainingConflicts;
     private Integer classSections;
     private String message;
+    private String previousActiveBatchId;
+    private String newActiveBatchId;
 
     public TimetablePublishAuditDTO() {}
 
@@ -23,6 +25,12 @@ public class TimetablePublishAuditDTO {
         this.remainingConflicts = remainingConflicts;
         this.classSections = classSections;
         this.message = message;
+    }
+
+    public TimetablePublishAuditDTO(String auditId, String batchId, String status, String publishedAt, String approvedBy, Integer publishedEntries, Integer remainingConflicts, Integer classSections, String message, String previousActiveBatchId, String newActiveBatchId) {
+        this(auditId, batchId, status, publishedAt, approvedBy, publishedEntries, remainingConflicts, classSections, message);
+        this.previousActiveBatchId = previousActiveBatchId;
+        this.newActiveBatchId = newActiveBatchId;
     }
 
     public String getAuditId() { return auditId; }
@@ -43,4 +51,8 @@ public class TimetablePublishAuditDTO {
     public void setClassSections(Integer classSections) { this.classSections = classSections; }
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
+    public String getPreviousActiveBatchId() { return previousActiveBatchId; }
+    public void setPreviousActiveBatchId(String previousActiveBatchId) { this.previousActiveBatchId = previousActiveBatchId; }
+    public String getNewActiveBatchId() { return newActiveBatchId; }
+    public void setNewActiveBatchId(String newActiveBatchId) { this.newActiveBatchId = newActiveBatchId; }
 }
