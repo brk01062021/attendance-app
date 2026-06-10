@@ -12,6 +12,9 @@ public class TimetablePublishAuditDTO {
     private String message;
     private String previousActiveBatchId;
     private String newActiveBatchId;
+    private Integer versionNumber;
+    private Integer readinessPercentage;
+    private Integer errorCount;
 
     public TimetablePublishAuditDTO() {}
 
@@ -31,6 +34,13 @@ public class TimetablePublishAuditDTO {
         this(auditId, batchId, status, publishedAt, approvedBy, publishedEntries, remainingConflicts, classSections, message);
         this.previousActiveBatchId = previousActiveBatchId;
         this.newActiveBatchId = newActiveBatchId;
+    }
+
+    public TimetablePublishAuditDTO(String auditId, String batchId, String status, String publishedAt, String approvedBy, Integer publishedEntries, Integer remainingConflicts, Integer classSections, String message, String previousActiveBatchId, String newActiveBatchId, Integer versionNumber, Integer readinessPercentage, Integer errorCount) {
+        this(auditId, batchId, status, publishedAt, approvedBy, publishedEntries, remainingConflicts, classSections, message, previousActiveBatchId, newActiveBatchId);
+        this.versionNumber = versionNumber;
+        this.readinessPercentage = readinessPercentage;
+        this.errorCount = errorCount;
     }
 
     public String getAuditId() { return auditId; }
@@ -55,4 +65,10 @@ public class TimetablePublishAuditDTO {
     public void setPreviousActiveBatchId(String previousActiveBatchId) { this.previousActiveBatchId = previousActiveBatchId; }
     public String getNewActiveBatchId() { return newActiveBatchId; }
     public void setNewActiveBatchId(String newActiveBatchId) { this.newActiveBatchId = newActiveBatchId; }
+    public Integer getVersionNumber() { return versionNumber; }
+    public void setVersionNumber(Integer versionNumber) { this.versionNumber = versionNumber; }
+    public Integer getReadinessPercentage() { return readinessPercentage; }
+    public void setReadinessPercentage(Integer readinessPercentage) { this.readinessPercentage = readinessPercentage; }
+    public Integer getErrorCount() { return errorCount; }
+    public void setErrorCount(Integer errorCount) { this.errorCount = errorCount; }
 }
