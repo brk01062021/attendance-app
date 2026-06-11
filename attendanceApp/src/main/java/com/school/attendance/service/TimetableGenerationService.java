@@ -48,13 +48,16 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -410,6 +413,32 @@ public class TimetableGenerationService {
             }
         }
 
+        Map<String, List<TimetableEntryDTO>> classPeriodMap = entries.stream()
+                .filter(entry -> !isBlank(entry.getClassName()))
+                .filter(entry -> !isBlank(entry.getSection()))
+                .filter(entry -> !isBlank(entry.getDayOfWeek()))
+                .filter(entry -> entry.getPeriodNumber() != null)
+                .collect(Collectors.groupingBy(entry -> safeText(entry.getClassName()) + "|" + safeText(entry.getSection()) + "|" + normalizeDay(entry.getDayOfWeek()) + "|" + entry.getPeriodNumber(), LinkedHashMap::new, Collectors.toList()));
+
+        for (List<TimetableEntryDTO> overlap : classPeriodMap.values()) {
+            if (overlap.size() > 1) {
+                TimetableEntryDTO first = overlap.get(0);
+                overlap.forEach(entry -> entry.setConflict(true));
+                conflicts.add(new TimetableConflictDTO(
+                        "C-" + conflictNumber++,
+                        "HIGH",
+                        "CLASS_SLOT_OVERLAP",
+                        "Duplicate class-period slot",
+                        first.getClassName() + "-" + first.getSection() + " has " + overlap.size() + " subjects in the same period.",
+                        first.getClassName(),
+                        first.getSection(),
+                        first.getTeacherName(),
+                        first.getDayOfWeek(),
+                        first.getPeriodNumber()
+                ));
+            }
+        }
+
         if (Boolean.TRUE.equals(request.getPreventConsecutiveLabsEnabled())) {
             Map<String, List<TimetableEntryDTO>> classDayMap = entries.stream()
                     .collect(Collectors.groupingBy(entry -> entry.getClassName() + "|" + entry.getSection() + "|" + entry.getDayOfWeek(), LinkedHashMap::new, Collectors.toList()));
@@ -514,90 +543,312 @@ public class TimetableGenerationService {
         refreshBatch(batch);
         int before = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
         List<String> actions = new ArrayList<>();
-        int repaired = 0;
 
-        // Day 24 production rule: Auto Repair is deterministic and batch-only.
-        // It never changes class, section, subject, teacher ownership, or teacher identity.
-        // It only swaps/moves day-period slots when the total blocking conflict count improves.
-        int previousConflictCount = countBlockingConflicts(batch.getEntries());
-        int guard = Math.max(100, batch.getEntries().size() * 4);
-        while (previousConflictCount > 0 && guard-- > 0) {
-            boolean changedInPass = false;
-
-            List<List<TimetableEntryDTO>> teacherGroups = teacherOverlapGroups(batch.getEntries());
-            for (List<TimetableEntryDTO> group : teacherGroups) {
-                List<TimetableEntryDTO> ordered = group.stream()
-                        .sorted(Comparator.comparing((TimetableEntryDTO entry) -> safeText(entry.getClassName()))
-                                .thenComparing(entry -> safeText(entry.getSection()))
-                                .thenComparing(entry -> safeText(entry.getSubjectName()))
-                                .thenComparing(entry -> safeText(entry.getId())))
-                        .toList();
-                for (int index = 1; index < ordered.size(); index++) {
-                    TimetableEntryDTO target = ordered.get(index);
-                    String originalDay = target.getDayOfWeek();
-                    Integer originalPeriod = target.getPeriodNumber();
-                    if (repairTeacherOverlapByClassSlotSwap(batch.getEntries(), target)) {
-                        repaired++;
-                        changedInPass = true;
-                        actions.add("Moved " + safeText(target.getTeacherName()) + " for " + safeText(target.getClassName()) + "-" + safeText(target.getSection())
-                                + " " + safeText(target.getSubjectName()) + " from " + normalizeDay(originalDay) + " P" + originalPeriod
-                                + " to " + normalizeDay(target.getDayOfWeek()) + " P" + target.getPeriodNumber()
-                                + " without changing class, section, subject, or teacher.");
-                    }
-                }
-            }
-
-            List<List<TimetableEntryDTO>> classSlotGroups = classSectionSlotOverlapGroups(batch.getEntries());
-            for (List<TimetableEntryDTO> group : classSlotGroups) {
-                List<TimetableEntryDTO> ordered = group.stream()
-                        .sorted(Comparator.comparing((TimetableEntryDTO entry) -> safeText(entry.getSubjectName()))
-                                .thenComparing(entry -> safeText(entry.getTeacherName()))
-                                .thenComparing(entry -> safeText(entry.getId())))
-                        .toList();
-                for (int index = 1; index < ordered.size(); index++) {
-                    TimetableEntryDTO target = ordered.get(index);
-                    String originalDay = target.getDayOfWeek();
-                    Integer originalPeriod = target.getPeriodNumber();
-                    if (repairClassSlotOverlapByEmptySlot(batch.getEntries(), target)) {
-                        repaired++;
-                        changedInPass = true;
-                        actions.add("Moved duplicate class slot for " + safeText(target.getClassName()) + "-" + safeText(target.getSection())
-                                + " " + safeText(target.getSubjectName()) + " from " + normalizeDay(originalDay) + " P" + originalPeriod
-                                + " to " + normalizeDay(target.getDayOfWeek()) + " P" + target.getPeriodNumber() + ".");
-                    }
-                }
-            }
-
-            refreshBatch(batch);
-            int nextConflictCount = countBlockingConflicts(batch.getEntries());
-            if (!changedInPass || nextConflictCount >= previousConflictCount) {
-                break;
-            }
-            previousConflictCount = nextConflictCount;
-        }
+        // Day 25 production rule for Existing Timetable Import:
+        // Auto Conflict Repair must not generate a new timetable or search for free slots first.
+        // It repairs the uploaded timetable by same-day period reshuffling inside affected
+        // class-section timetables, while validating all teachers connected to that day.
+        OptimizationOutcome outcome = optimizeExistingImportBySameDayReshuffle(batch.getEntries());
+        actions.addAll(outcome.actions);
 
         refreshBatch(batch);
         int after = batch.getConflicts() == null ? 0 : batch.getConflicts().size();
+        int resolved = Math.max(0, before - after);
+
         if (after == 0) {
-            actions.add("Auto Repair completed. Revalidate the batch to move it to READY_TO_PUBLISH.");
-        } else if (actions.isEmpty()) {
-            actions.add("Auto Repair could not safely reduce the remaining conflicts without changing teacher/class ownership. Use corrected workbook or intentional Manual Edit.");
+            actions.add("Auto Repair completed successfully. " + before + " → 0 conflicts. Timetable Ready To Publish after revalidation.");
+        } else if (resolved > 0) {
+            actions.add("Auto Repair partially completed. " + resolved + " conflicts resolved. " + after + " conflicts remain. Run Auto Repair again; use Manual Edit only for intentional Admin/Principal customization.");
         } else {
-            actions.add("Auto Repair reduced conflicts from " + before + " to " + after + ". Re-run Auto Repair or use intentional Manual Edit only for custom changes.");
+            actions.add("Auto Repair attempted. No valid timetable optimization found. " + after + " conflicts remain.");
         }
 
         TimetableRepairResultDTO result = new TimetableRepairResultDTO();
         result.setBatchId(batch.getGeneratedBatchId());
         result.setConflictsBefore(before);
         result.setConflictsAfter(after);
-        result.setRepairedItems(repaired);
+        result.setRepairedItems(outcome.movesApplied);
         result.setPublishReady(after == 0);
         result.setActions(actions);
         result.setTimetable(batch);
         generatedBatches.put(batch.getGeneratedBatchId(), batch);
-        syncExistingImportAfterRevalidation(batch, after == 0 ? "AUTO_REPAIR_READY" : "AUTO_REPAIR_PARTIAL");
-        addVersion(batch.getGeneratedBatchId(), "SYSTEM", "AUTO_REPAIR", batch.getEntries().size(), "Auto Repair completed. Conflicts: " + before + " → " + after + ". Teacher/class ownership preserved.");
+        syncExistingImportAfterRevalidation(batch, after == 0 ? "AUTO_REPAIR_READY" : (resolved > 0 ? "AUTO_REPAIR_PARTIAL" : "AUTO_REPAIR_ATTEMPTED"));
+        String versionMessage = after == 0
+                ? "Auto Repair completed successfully. " + before + " → 0 conflicts. Timetable Ready To Publish. Teacher, subject, and class ownership preserved."
+                : (resolved > 0
+                   ? "Auto Repair partially completed. " + resolved + " conflicts resolved. " + after + " conflicts remain. Teacher, subject, and class ownership preserved."
+                   : "Auto Repair attempted. No valid timetable optimization found. " + after + " conflicts remain. Teacher, subject, and class ownership preserved.");
+        addVersion(batch.getGeneratedBatchId(), "SYSTEM", "AUTO_REPAIR", batch.getEntries().size(), versionMessage);
         return result;
+    }
+
+    private OptimizationOutcome optimizeExistingImportBySameDayReshuffle(List<TimetableEntryDTO> entries) {
+        OptimizationOutcome outcome = new OptimizationOutcome();
+        if (entries == null || entries.isEmpty()) return outcome;
+
+        int previous = countBlockingConflicts(entries);
+        int initial = previous;
+        List<EntrySlotSnapshot> bestSnapshot = snapshot(entries);
+        int guard = Math.max(250, entries.size() * 8);
+
+        while (previous > 0 && guard-- > 0) {
+            SameDaySwap bestSwap = null;
+
+            List<List<TimetableEntryDTO>> teacherConflicts = teacherOverlapGroups(entries);
+            for (List<TimetableEntryDTO> conflictGroup : teacherConflicts) {
+                List<TimetableEntryDTO> orderedConflictEntries = conflictGroup.stream()
+                        .sorted(Comparator.comparing((TimetableEntryDTO entry) -> safeText(entry.getClassName()))
+                                .thenComparing(entry -> safeText(entry.getSection()))
+                                .thenComparing(entry -> safeText(entry.getSubjectName()))
+                                .thenComparing(entry -> safeText(entry.getId())))
+                        .toList();
+
+                for (TimetableEntryDTO target : orderedConflictEntries) {
+                    String day = normalizeDay(target.getDayOfWeek());
+                    if (isBlank(day)) continue;
+                    List<TimetableEntryDTO> sameDayCandidates = sameClassSameDayCandidates(entries, target);
+                    for (TimetableEntryDTO candidate : sameDayCandidates) {
+                        bestSwap = betterSameDaySwap(entries, target, candidate, previous, bestSwap);
+                    }
+                }
+            }
+
+            // If teacher conflicts are not directly improved, try class duplicate rows using the same rule:
+            // keep the imported class/day timetable, and reshuffle period numbers inside that same day.
+            if (bestSwap == null) {
+                List<List<TimetableEntryDTO>> classConflicts = classSectionSlotOverlapGroups(entries);
+                for (List<TimetableEntryDTO> conflictGroup : classConflicts) {
+                    for (TimetableEntryDTO target : conflictGroup) {
+                        List<TimetableEntryDTO> sameDayCandidates = sameClassSameDayCandidates(entries, target);
+                        for (TimetableEntryDTO candidate : sameDayCandidates) {
+                            bestSwap = betterSameDaySwap(entries, target, candidate, previous, bestSwap);
+                        }
+                    }
+                }
+            }
+
+            if (bestSwap == null || bestSwap.after >= previous) break;
+
+            swapSlots(bestSwap.left, bestSwap.right);
+            outcome.movesApplied++;
+            outcome.actions.add("Same-day period reshuffle applied: " + describeEntryForAudit(bestSwap.left)
+                    + " swapped with " + describeEntryForAudit(bestSwap.right)
+                    + ". Conflicts " + previous + " → " + bestSwap.after + ".");
+            previous = bestSwap.after;
+            bestSnapshot = snapshot(entries);
+        }
+
+        restore(entries, bestSnapshot);
+        int finalConflicts = countBlockingConflicts(entries);
+        if (finalConflicts >= initial) {
+            outcome.movesApplied = 0;
+            outcome.actions.clear();
+        }
+        return outcome;
+    }
+
+    private SameDaySwap betterSameDaySwap(List<TimetableEntryDTO> entries, TimetableEntryDTO left, TimetableEntryDTO right, int currentConflicts, SameDaySwap bestSwap) {
+        if (left == null || right == null || left == right) return bestSwap;
+        if (!equalsText(left.getClassName(), right.getClassName())) return bestSwap;
+        if (!equalsText(left.getSection(), right.getSection())) return bestSwap;
+        if (!equalsText(normalizeDay(left.getDayOfWeek()), normalizeDay(right.getDayOfWeek()))) return bestSwap;
+        if (Objects.equals(left.getPeriodNumber(), right.getPeriodNumber())) return bestSwap;
+
+        swapSlots(left, right);
+        int after = countBlockingConflicts(entries);
+        swapSlots(left, right);
+
+        if (after >= currentConflicts) return bestSwap;
+        if (bestSwap == null || after < bestSwap.after || (after == bestSwap.after && sameDaySwapTieBreak(left, right) < sameDaySwapTieBreak(bestSwap.left, bestSwap.right))) {
+            return new SameDaySwap(left, right, after);
+        }
+        return bestSwap;
+    }
+
+    private int sameDaySwapTieBreak(TimetableEntryDTO left, TimetableEntryDTO right) {
+        int leftPeriod = left.getPeriodNumber() == null ? 99 : left.getPeriodNumber();
+        int rightPeriod = right.getPeriodNumber() == null ? 99 : right.getPeriodNumber();
+        return Math.abs(leftPeriod - rightPeriod) * 100 + Math.min(leftPeriod, rightPeriod);
+    }
+
+    private List<TimetableEntryDTO> sameClassSameDayCandidates(List<TimetableEntryDTO> entries, TimetableEntryDTO target) {
+        if (target == null || isBlank(target.getClassName()) || isBlank(target.getSection()) || isBlank(target.getDayOfWeek())) return List.of();
+        String day = normalizeDay(target.getDayOfWeek());
+        return entries.stream()
+                .filter(entry -> entry != target)
+                .filter(entry -> equalsText(entry.getClassName(), target.getClassName()))
+                .filter(entry -> equalsText(entry.getSection(), target.getSection()))
+                .filter(entry -> equalsText(normalizeDay(entry.getDayOfWeek()), day))
+                .filter(entry -> entry.getPeriodNumber() != null)
+                .sorted(Comparator.comparingInt((TimetableEntryDTO entry) -> Math.abs((entry.getPeriodNumber() == null ? 0 : entry.getPeriodNumber()) - (target.getPeriodNumber() == null ? 0 : target.getPeriodNumber())))
+                        .thenComparing(entry -> safeText(entry.getSubjectName()))
+                        .thenComparing(entry -> safeText(entry.getTeacherName()))
+                        .thenComparing(entry -> safeText(entry.getId())))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private String describeEntryForAudit(TimetableEntryDTO entry) {
+        if (entry == null) return "timetable entry";
+        return safeText(entry.getClassName()) + "-" + safeText(entry.getSection())
+                + " " + normalizeDay(entry.getDayOfWeek()) + " P" + entry.getPeriodNumber()
+                + " " + safeText(entry.getSubjectName())
+                + " (" + safeText(entry.getTeacherName()) + ")";
+    }
+
+    private SlotRef chooseBestSlot(TimetableEntryDTO entry, List<SlotRef> availableSlots, Map<String, TimetableEntryDTO> occupiedTeacherSlots, Map<String, Integer> dailySubjectCounts, int pass) {
+        if (availableSlots == null || availableSlots.isEmpty()) return null;
+        Long teacherId = entry.getTeacherId();
+        return availableSlots.stream()
+                .min(Comparator.comparingInt((SlotRef slot) -> slotPenalty(entry, slot, teacherId, occupiedTeacherSlots, dailySubjectCounts, pass))
+                        .thenComparing(slot -> slot.day)
+                        .thenComparingInt(slot -> slot.period))
+                .orElse(availableSlots.get(0));
+    }
+
+    private int slotPenalty(TimetableEntryDTO entry, SlotRef slot, Long teacherId, Map<String, TimetableEntryDTO> occupiedTeacherSlots, Map<String, Integer> dailySubjectCounts, int pass) {
+        int penalty = 0;
+        if (teacherId != null && occupiedTeacherSlots.containsKey(teacherSlotKey(teacherId, slot.day, slot.period))) penalty += 10_000;
+        String subjectKey = slot.day + "|" + safeText(entry.getSubjectName()).toUpperCase(Locale.ROOT);
+        int sameSubjectToday = dailySubjectCounts.getOrDefault(subjectKey, 0);
+        if (sameSubjectToday > 0) penalty += 100 + sameSubjectToday * 25;
+        int originalDistance = Math.abs(slot.period - (entry.getPeriodNumber() == null ? slot.period : entry.getPeriodNumber()));
+        penalty += pass % 3 == 0 ? originalDistance : Math.max(0, 7 - slot.period);
+        return penalty;
+    }
+
+    private int classConflictWeight(List<TimetableEntryDTO> entries) {
+        if (entries == null) return 0;
+        return (int) entries.stream().filter(entry -> Boolean.TRUE.equals(entry.getConflict())).count();
+    }
+
+    private int optimizationScore(List<TimetableEntryDTO> entries) {
+        return detectConflictsForOptimization(entries).size() * 10_000 + teacherLoadPenalty(entries) + dailySubjectPenalty(entries);
+    }
+
+    private List<TimetableConflictDTO> detectConflictsForOptimization(List<TimetableEntryDTO> entries) {
+        TimetableGenerationRequestDTO request = new TimetableGenerationRequestDTO();
+        request.setPreventConsecutiveLabsEnabled(true);
+        List<EntryConflictSnapshot> flags = entries.stream().map(entry -> new EntryConflictSnapshot(entry, entry.getConflict())).toList();
+        List<TimetableConflictDTO> conflicts = detectConflicts(entries, request);
+        for (EntryConflictSnapshot flag : flags) flag.entry.setConflict(flag.conflict);
+        return conflicts;
+    }
+
+    private int teacherLoadPenalty(List<TimetableEntryDTO> entries) {
+        Map<String, Long> dailyLoad = entries.stream()
+                .filter(entry -> entry.getTeacherId() != null)
+                .filter(entry -> !isBlank(entry.getDayOfWeek()))
+                .collect(Collectors.groupingBy(entry -> entry.getTeacherId() + "|" + normalizeDay(entry.getDayOfWeek()), Collectors.counting()));
+        return dailyLoad.values().stream().mapToInt(count -> count > 7 ? (int) ((count - 7) * 50) : 0).sum();
+    }
+
+    private int dailySubjectPenalty(List<TimetableEntryDTO> entries) {
+        Map<String, Long> grouped = entries.stream()
+                .filter(entry -> !isBlank(entry.getClassName()))
+                .filter(entry -> !isBlank(entry.getSection()))
+                .filter(entry -> !isBlank(entry.getSubjectName()))
+                .filter(entry -> !isBlank(entry.getDayOfWeek()))
+                .collect(Collectors.groupingBy(entry -> safeText(entry.getClassName()) + "|" + safeText(entry.getSection()) + "|" + normalizeDay(entry.getDayOfWeek()) + "|" + safeText(entry.getSubjectName()).toUpperCase(Locale.ROOT), Collectors.counting()));
+        return grouped.values().stream().mapToInt(count -> count > 1 ? (int) ((count - 1) * 30) : 0).sum();
+    }
+
+    private List<SlotRef> buildSchoolSlots(List<String> days, int maxPeriod) {
+        List<SlotRef> slots = new ArrayList<>();
+        for (String day : days) {
+            for (int period = 1; period <= maxPeriod; period++) {
+                slots.add(new SlotRef(day, period));
+            }
+        }
+        return slots;
+    }
+
+    private void applySlot(TimetableEntryDTO entry, SlotRef slot) {
+        entry.setDayOfWeek(slot.day);
+        entry.setPeriodNumber(slot.period);
+        applyPeriodTimes(entry, slot.period);
+    }
+
+    private String teacherSlotKey(Long teacherId, String day, Integer period) {
+        return teacherId + "|" + normalizeDay(day) + "|" + period;
+    }
+
+    private List<EntrySlotSnapshot> snapshot(List<TimetableEntryDTO> entries) {
+        return entries.stream().map(EntrySlotSnapshot::new).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private void restore(List<TimetableEntryDTO> entries, List<EntrySlotSnapshot> snapshots) {
+        if (entries == null || snapshots == null) return;
+        Map<String, EntrySlotSnapshot> byId = snapshots.stream().collect(Collectors.toMap(item -> item.id, item -> item, (a, b) -> a, LinkedHashMap::new));
+        for (TimetableEntryDTO entry : entries) {
+            EntrySlotSnapshot snapshot = byId.get(String.valueOf(entry.getId()));
+            if (snapshot == null) continue;
+            entry.setDayOfWeek(snapshot.day);
+            entry.setPeriodNumber(snapshot.period);
+            entry.setStartTime(snapshot.startTime);
+            entry.setEndTime(snapshot.endTime);
+            entry.setRoomNumber(snapshot.roomNumber);
+        }
+    }
+
+    private List<EntrySlotSnapshot> snapshotFromInitialIfNeeded(List<EntrySlotSnapshot> snapshots, List<TimetableEntryDTO> entries) {
+        return snapshots == null || snapshots.isEmpty() ? snapshot(entries) : snapshots;
+    }
+
+    private static class OptimizationOutcome {
+        private int movesApplied;
+        private final List<String> actions = new ArrayList<>();
+    }
+
+    private static class SlotRef {
+        private final String day;
+        private final Integer period;
+        private SlotRef(String day, Integer period) {
+            this.day = day;
+            this.period = period;
+        }
+        @Override public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof SlotRef slotRef)) return false;
+            return Objects.equals(day, slotRef.day) && Objects.equals(period, slotRef.period);
+        }
+        @Override public int hashCode() { return Objects.hash(day, period); }
+    }
+
+    private static class SameDaySwap {
+        private final TimetableEntryDTO left;
+        private final TimetableEntryDTO right;
+        private final int after;
+        private SameDaySwap(TimetableEntryDTO left, TimetableEntryDTO right, int after) {
+            this.left = left;
+            this.right = right;
+            this.after = after;
+        }
+    }
+
+    private static class EntrySlotSnapshot {
+        private final String id;
+        private final String day;
+        private final Integer period;
+        private final String startTime;
+        private final String endTime;
+        private final String roomNumber;
+        private EntrySlotSnapshot(TimetableEntryDTO entry) {
+            this.id = String.valueOf(entry.getId());
+            this.day = entry.getDayOfWeek();
+            this.period = entry.getPeriodNumber();
+            this.startTime = entry.getStartTime();
+            this.endTime = entry.getEndTime();
+            this.roomNumber = entry.getRoomNumber();
+        }
+    }
+
+    private static class EntryConflictSnapshot {
+        private final TimetableEntryDTO entry;
+        private final Boolean conflict;
+        private EntryConflictSnapshot(TimetableEntryDTO entry, Boolean conflict) {
+            this.entry = entry;
+            this.conflict = conflict;
+        }
     }
 
     private boolean repairTeacherOverlapByClassSlotSwap(List<TimetableEntryDTO> entries, TimetableEntryDTO target) {
