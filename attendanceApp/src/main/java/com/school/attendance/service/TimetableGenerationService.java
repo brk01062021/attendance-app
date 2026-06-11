@@ -1088,7 +1088,7 @@ public class TimetableGenerationService {
 
     private String batchStatus(TimetableGenerationResponseDTO batch) {
         if (batch == null) return "REVIEW";
-        if (Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId())) && batch.getGeneratedBatchId().equals(latestPublishedBatchId)) return "PUBLISHED";
+        if (Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId())) && batch.getGeneratedBatchId().equals(latestPublishedBatchId)) return "PUBLISHED_ACTIVE";
         if (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0) return "NEEDS_CORRECTION";
         return batch.getCompletionPercentage() != null && batch.getCompletionPercentage() >= 100 ? "READY_TO_PUBLISH" : "REVIEW";
     }
@@ -1111,6 +1111,11 @@ public class TimetableGenerationService {
                 ? "Manual edits saved and revalidated. Imported timetable is ready to publish."
                 : "Manual edits saved to the batch only. Blocking conflicts remain, so publish is disabled.");
         updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), imported.getStatus());
+        if (conflicts == 0) {
+            replaceLifecycleNotification(batch.getGeneratedBatchId(), "ADMIN_PRINCIPAL", "Timetable ready for publishing review", "Batch " + batch.getGeneratedBatchId() + " passed repair and revalidation. Publish after final Admin/Principal review.");
+        } else {
+            replaceLifecycleNotification(batch.getGeneratedBatchId(), "ADMIN_PRINCIPAL", "Existing timetable needs correction", "Open Timetable Operations with batch " + batch.getGeneratedBatchId() + " to review conflicts and corrections.");
+        }
     }
 
     public TimetablePublishResponseDTO publish(String batchId) {
@@ -1149,7 +1154,8 @@ public class TimetableGenerationService {
             publishLocks.put(batch.getGeneratedBatchId(), true);
             updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), "PUBLISHED");
             addVersion(batch.getGeneratedBatchId(), approvedBy, "PUBLISHED_LOCKED", batch.getEntries().size(), "Published timetable locked as the one ACTIVE timetable for this school.");
-            addNotification(batch.getGeneratedBatchId(), "TEACHERS_STUDENTS_PARENTS", "New timetable published", notificationMessage);
+            replaceLifecycleNotification(batch.getGeneratedBatchId(), "ADMIN_PRINCIPAL", "Timetable published active", "Batch " + batch.getGeneratedBatchId() + " is now the active published timetable for this school.");
+            replaceLifecycleNotification(batch.getGeneratedBatchId(), "TEACHERS_STUDENTS_PARENTS", "New timetable published", notificationMessage);
             archiveHistory.put(batch.getGeneratedBatchId(), new TimetableArchiveSummaryDTO(batch.getGeneratedBatchId(), publishedAt, approvedBy, batch.getEntries().size(), "ACTIVE", "Current active published timetable for school " + schoolId + "."));
             TimetablePublishAuditDTO audit = new TimetablePublishAuditDTO(
                     "PUB-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
@@ -1198,8 +1204,10 @@ public class TimetableGenerationService {
 
     public List<TimetableBatchSummaryDTO> listBatches() {
         List<TimetableBatchSummaryDTO> summaries = generatedBatches.values().stream()
-                .sorted(Comparator.comparing(TimetableGenerationResponseDTO::getGeneratedBatchId).reversed())
                 .map(this::toBatchSummary)
+                .sorted(Comparator.comparingInt((TimetableBatchSummaryDTO summary) -> batchStatusSortRank(summary.getStatus()))
+                        .thenComparing(summary -> summary.getUploadedAt() == null ? "" : summary.getUploadedAt(), Comparator.reverseOrder())
+                        .thenComparing(TimetableBatchSummaryDTO::getBatchId, Comparator.reverseOrder()))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         if (summaries.isEmpty()) {
@@ -1208,6 +1216,15 @@ public class TimetableGenerationService {
             summaries.add(toBatchSummary(fallback));
         }
         return summaries;
+    }
+
+    private int batchStatusSortRank(String status) {
+        if ("PUBLISHED_ACTIVE".equals(status)) return 0;
+        if ("READY_TO_PUBLISH".equals(status)) return 1;
+        if ("NEEDS_CORRECTION".equals(status)) return 2;
+        if ("PUBLISH_BLOCKED".equals(status)) return 3;
+        if ("ARCHIVED".equals(status)) return 4;
+        return 5;
     }
 
 
@@ -1241,8 +1258,8 @@ public class TimetableGenerationService {
                 : (batch.getConflictsDetected() != null && batch.getConflictsDetected() > 0
                    ? "Batch has blocking conflicts. Use Auto Conflict Repair or Manual Edit before publishing."
                    : "Batch is ready for Admin/Principal publish review.");
-        String uploadedAt = versions(batch.getGeneratedBatchId()).stream().reduce((first, second) -> first).map(TimetableVersionDTO::getCreatedAt).orElse(null);
-        String uploadedBy = versions(batch.getGeneratedBatchId()).stream().reduce((first, second) -> first).map(TimetableVersionDTO::getCreatedBy).orElse(null);
+        String uploadedAt = versions(batch.getGeneratedBatchId()).stream().reduce((first, second) -> second).map(TimetableVersionDTO::getCreatedAt).orElse(null);
+        String uploadedBy = versions(batch.getGeneratedBatchId()).stream().reduce((first, second) -> second).map(version -> normalizeTimetableActor(version.getCreatedBy())).orElse("Admin");
         return new TimetableBatchSummaryDTO(
                 batch.getGeneratedBatchId(),
                 status,
@@ -1486,7 +1503,10 @@ public class TimetableGenerationService {
 
     public List<TimetableNotificationDTO> notifications(String batchId) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
-        return timetableNotifications.getOrDefault(batch.getGeneratedBatchId(), List.of());
+        String status = batchStatus(batch);
+        return timetableNotifications.getOrDefault(batch.getGeneratedBatchId(), List.of()).stream()
+                .filter(notification -> shouldExposeNotificationForStatus(notification, status))
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     public List<TimetableArchiveSummaryDTO> archives() {
@@ -1627,7 +1647,7 @@ public class TimetableGenerationService {
                     ? "Existing school timetable imported from Excel and converted into VidyaSetu timetable format."
                     : "Existing timetable imported with blocking validation errors for Timetable Operations review.";
             addVersion(importBatchId, actor, event, entries.size(), note);
-            addNotification(importBatchId, "ADMIN_PRINCIPAL", Boolean.TRUE.equals(response.getCanPublish()) ? "Existing timetable validated" : "Existing timetable needs correction", Boolean.TRUE.equals(response.getCanPublish()) ? "Imported timetable is ready for Admin/Principal preview and publish." : "Open Timetable Operations with batch " + importBatchId + " to review conflicts and corrections.");
+            replaceLifecycleNotification(importBatchId, "ADMIN_PRINCIPAL", Boolean.TRUE.equals(response.getCanPublish()) ? "Existing timetable validated" : "Existing timetable needs correction", Boolean.TRUE.equals(response.getCanPublish()) ? "Imported timetable is ready for Admin/Principal preview and publish." : "Open Timetable Operations with batch " + importBatchId + " to review conflicts and corrections.");
         }
         return response;
     }
@@ -1966,6 +1986,48 @@ public class TimetableGenerationService {
         TimetableVersionDTO version = new TimetableVersionDTO(versions.size() + 1, safeBatchId, LocalDateTime.now().toString(), isBlank(createdBy) ? "SYSTEM" : createdBy, changeType, entriesCount, notes);
         versions.add(0, version);
         return version;
+    }
+
+    private String normalizeTimetableActor(String actor) {
+        if (isBlank(actor) || "SYSTEM".equalsIgnoreCase(actor)) return "Admin";
+        if ("ADMIN".equalsIgnoreCase(actor)) return "Admin";
+        if ("PRINCIPAL".equalsIgnoreCase(actor)) return "Principal";
+        return actor.trim();
+    }
+
+    private boolean isLifecycleNotificationTitle(String title) {
+        if (isBlank(title)) return false;
+        String safeTitle = title.trim().toLowerCase();
+        return safeTitle.contains("existing timetable")
+                || safeTitle.contains("timetable ready")
+                || safeTitle.contains("timetable published")
+                || safeTitle.contains("new timetable published")
+                || safeTitle.contains("rollback completed");
+    }
+
+    private boolean shouldExposeNotificationForStatus(TimetableNotificationDTO notification, String status) {
+        if (notification == null) return false;
+        String title = (notification.getTitle() == null ? "" : notification.getTitle()).toLowerCase();
+        String message = (notification.getMessage() == null ? "" : notification.getMessage()).toLowerCase();
+        String combined = title + " " + message;
+        if (("READY_TO_PUBLISH".equals(status) || "PUBLISHED_ACTIVE".equals(status) || "ARCHIVED".equals(status)) && combined.contains("needs correction")) return false;
+        if ("PUBLISHED_ACTIVE".equals(status) && combined.contains("ready for publishing")) return false;
+        return true;
+    }
+
+    private void replaceLifecycleNotification(String batchId, String audience, String title, String message) {
+        String safeBatchId = isBlank(batchId) ? "UNKNOWN" : batchId;
+        String safeAudience = isBlank(audience) ? "ADMIN_PRINCIPAL" : audience;
+        List<TimetableNotificationDTO> notifications = timetableNotifications.computeIfAbsent(safeBatchId, key -> new ArrayList<>());
+        notifications.removeIf(notification -> safeAudience.equalsIgnoreCase(notification.getAudience()) && isLifecycleNotificationTitle(notification.getTitle()));
+        notifications.add(0, new TimetableNotificationDTO(
+                "TTN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
+                safeBatchId,
+                safeAudience,
+                title,
+                message,
+                LocalDateTime.now().toString()
+        ));
     }
 
     private void addNotification(String batchId, String audience, String title, String message) {
