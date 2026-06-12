@@ -125,7 +125,7 @@ public class ImportValidationService {
                 "TeacherAssignments", List.of("teacher_id", "class_name", "section", "subject"),
                 "ClassSections", List.of("class_name", "section"),
                 "TeacherPools", List.of("class_name", "teacher_pool"),
-                "AcademicRules", List.of("subject_name", "subject_type", "weekly_periods"),
+                "AcademicRules", List.of("subject_name", "weekly_periods"),
                 "Schedules", List.of("day", "period", "start_time", "end_time")
         );
 

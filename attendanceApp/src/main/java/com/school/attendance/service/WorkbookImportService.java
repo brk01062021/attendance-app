@@ -375,9 +375,6 @@ public class WorkbookImportService {
             } else if (!subjects.isEmpty() && !subjects.contains(subjectName.toLowerCase(Locale.ROOT))) {
                 issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "subject_name", "WARNING", "Academic rule subject is not listed in Subjects sheet."));
             }
-            if (subjectType.isBlank()) {
-                issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "subject_type", "WARNING", "Academic rule subject_type is missing. Default timetable rules may be applied."));
-            }
             if (weeklyPeriods.isBlank()) {
                 issues.add(new ImportValidationIssueDTO("AcademicRules", row.rowNumber(), "weekly_periods", "ERROR", "Academic rule must include weekly_periods for timetable readiness."));
             } else {
