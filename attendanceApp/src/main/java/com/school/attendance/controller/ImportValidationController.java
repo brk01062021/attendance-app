@@ -103,6 +103,11 @@ public class ImportValidationController {
         return ApiResponse.success("Workbook upload history loaded", workbookImportService.history(schoolId));
     }
 
+    @DeleteMapping({"/workbooks/history/inactive", "/upload-history/inactive"})
+    public ApiResponse<Map<String, Object>> clearInactiveHistory(@RequestParam String schoolId) {
+        return ApiResponse.success("Inactive workbook import history cleared", workbookImportService.clearInactiveHistory(schoolId));
+    }
+
 
     @GetMapping({"/workbooks/commit-audit-trail", "/commit-audit-trail"})
     public ApiResponse<List<ImportUploadHistoryDTO>> commitAuditTrail(@RequestParam String schoolId) {

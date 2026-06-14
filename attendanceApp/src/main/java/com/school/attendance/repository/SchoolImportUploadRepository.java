@@ -10,6 +10,7 @@ import java.util.Optional;
 
 public interface SchoolImportUploadRepository extends JpaRepository<SchoolImportUpload, Long> {
     List<SchoolImportUpload> findTop20BySchoolCodeIgnoreCaseOrderByUploadedAtDesc(String schoolCode);
+    List<SchoolImportUpload> findBySchoolCodeIgnoreCaseOrderByUploadedAtDesc(String schoolCode);
 
     @Query("""
             select u.id as id,

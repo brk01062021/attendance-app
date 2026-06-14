@@ -147,6 +147,28 @@ public class WorkbookImportService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional
+    public Map<String, Object> clearInactiveHistory(String schoolId) {
+        String normalizedSchoolId = resolveSchoolId(schoolId);
+        List<SchoolImportUpload> uploads = uploadRepository.findBySchoolCodeIgnoreCaseOrderByUploadedAtDesc(normalizedSchoolId);
+        List<SchoolImportUpload> removable = uploads.stream()
+                .filter(upload -> !upload.isCommitted())
+                .collect(Collectors.toList());
+
+        for (SchoolImportUpload upload : removable) {
+            stagingRepository.deleteByUploadId(upload.getId());
+        }
+        uploadRepository.deleteAll(removable);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("schoolId", normalizedSchoolId);
+        response.put("clearedCount", removable.size());
+        response.put("message", removable.isEmpty()
+                ? "No inactive workbook imports were available to clear."
+                : "Old blocked, rolled back, or uncommitted workbook imports were cleared. Committed import audit records were preserved.");
+        return response;
+    }
+
     @Transactional(readOnly = true)
     public ImportPreviewResponseDTO preview(Long uploadId, String schoolId) {
         String normalizedSchoolId = resolveSchoolId(schoolId);

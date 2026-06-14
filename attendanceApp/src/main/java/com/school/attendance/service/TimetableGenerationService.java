@@ -1153,6 +1153,13 @@ public class TimetableGenerationService {
             activePublishedBatchBySchool.put(schoolId, batch.getGeneratedBatchId());
             publishLocks.put(batch.getGeneratedBatchId(), true);
             updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), "PUBLISHED");
+            ExistingTimetableImportResponseDTO publishedImport = existingTimetableImports.get(batch.getGeneratedBatchId());
+            if (publishedImport != null) {
+                publishedImport.setPublishedBatchId(batch.getGeneratedBatchId());
+                publishedImport.setStatus("PUBLISHED_ACTIVE");
+                publishedImport.setCanPublish(true);
+                publishedImport.setMessage("Final timetable is published and active. Visible to Teachers, Students, and Parents.");
+            }
             addVersion(batch.getGeneratedBatchId(), approvedBy, "PUBLISHED_LOCKED", batch.getEntries().size(), "Published timetable locked as the one ACTIVE timetable for this school.");
             replaceLifecycleNotification(batch.getGeneratedBatchId(), "ADMIN_PRINCIPAL", "Timetable published active", "Batch " + batch.getGeneratedBatchId() + " is now the active published timetable for this school.");
             replaceLifecycleNotification(batch.getGeneratedBatchId(), "TEACHERS_STUDENTS_PARENTS", "New timetable published", notificationMessage);
@@ -1654,10 +1661,15 @@ public class TimetableGenerationService {
 
     public ExistingTimetableImportStatusDTO existingTimetableImportStatus(String schoolId) {
         String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        String activeBatchId = resolveLatestPublishedBatchId(safeSchoolId);
         ExistingTimetableImportResponseDTO latest = existingTimetableImports.values().stream()
                 .filter(item -> safeSchoolId.equalsIgnoreCase(item.getSchoolId()))
                 .reduce((first, second) -> second)
                 .orElse(null);
+        if (!isBlank(activeBatchId) && existingTimetableImports.containsKey(activeBatchId)) {
+            latest = existingTimetableImports.get(activeBatchId);
+        }
+
         ExistingTimetableImportStatusDTO status = new ExistingTimetableImportStatusDTO();
         status.setSchoolId(safeSchoolId);
         if (latest == null) {
@@ -1670,16 +1682,23 @@ public class TimetableGenerationService {
             status.setTotalPeriodAllocations(0);
             return status;
         }
-        status.setImportBatchId(latest.getImportBatchId());
-        status.setPublishedBatchId(latest.getPublishedBatchId());
+
+        String latestBatchId = latest.getImportBatchId();
+        boolean isActivePublished = !isBlank(activeBatchId)
+                && activeBatchId.equals(latestBatchId)
+                && Boolean.TRUE.equals(publishLocks.get(activeBatchId));
+
+        status.setImportBatchId(latestBatchId);
+        status.setPublishedBatchId(isActivePublished ? activeBatchId : latest.getPublishedBatchId());
         status.setTotalClasses(latest.getTotalClasses());
         status.setTotalSections(latest.getTotalSections());
         status.setTotalTeachers(latest.getTotalTeachers());
         status.setTotalPeriodAllocations(latest.getTotalPeriodAllocations());
-        if ("PUBLISHED".equalsIgnoreCase(latest.getStatus())) {
-            status.setStatus("PUBLISHED");
-            status.setLabel("Published");
-            status.setMessage("Imported timetable is published and visible to Teacher, Student, and Parent roles.");
+
+        if (isActivePublished || "PUBLISHED_ACTIVE".equalsIgnoreCase(latest.getStatus()) || "PUBLISHED".equalsIgnoreCase(latest.getStatus())) {
+            status.setStatus("PUBLISHED_ACTIVE");
+            status.setLabel("Published Active");
+            status.setMessage("Final timetable is published and active. Visible to Teachers, Students, and Parents.");
         } else if (Boolean.TRUE.equals(latest.getCanPublish())) {
             status.setStatus("READY_TO_PUBLISH");
             status.setLabel("Imported – Ready to Publish");
