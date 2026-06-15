@@ -35,6 +35,7 @@ public class WorkbookImportService {
     private final WorkspaceSetupService workspaceSetupService;
     private final FileStorageService fileStorageService;
     private final UploadedFileMetadataService uploadedFileMetadataService;
+    private final WorkbookUserProvisioningService workbookUserProvisioningService;
 
     public WorkbookImportService(ImportValidationService importValidationService,
                                  SchoolImportUploadRepository uploadRepository,
@@ -42,7 +43,8 @@ public class WorkbookImportService {
                                  ObjectMapper objectMapper,
                                  WorkspaceSetupService workspaceSetupService,
                                  FileStorageService fileStorageService,
-                                 UploadedFileMetadataService uploadedFileMetadataService) {
+                                 UploadedFileMetadataService uploadedFileMetadataService,
+                                 WorkbookUserProvisioningService workbookUserProvisioningService) {
         this.importValidationService = importValidationService;
         this.uploadRepository = uploadRepository;
         this.stagingRepository = stagingRepository;
@@ -50,6 +52,7 @@ public class WorkbookImportService {
         this.workspaceSetupService = workspaceSetupService;
         this.fileStorageService = fileStorageService;
         this.uploadedFileMetadataService = uploadedFileMetadataService;
+        this.workbookUserProvisioningService = workbookUserProvisioningService;
     }
 
     @Transactional
@@ -222,7 +225,8 @@ public class WorkbookImportService {
             throw new IllegalStateException("This import was rolled back and cannot be committed.");
         }
         if (upload.isCommitted()) {
-            return action(upload, "Import batch was already committed. No duplicate staging rows were created.");
+            WorkbookUserProvisioningService.ProvisioningResult provisioning = workbookUserProvisioningService.provisionCommittedWorkbook(upload);
+            return action(upload, "Import batch was already committed. No duplicate staging rows were created. " + provisioningMessage(provisioning));
         }
         if (upload.getErrorCount() > 0 || "BLOCKED".equalsIgnoreCase(upload.getStatus())) {
             throw new IllegalStateException("Resolve workbook validation errors before committing import data.");
@@ -235,9 +239,21 @@ public class WorkbookImportService {
         upload.setStatus("COMMITTED");
         upload.setCommittedAt(LocalDateTime.now());
         upload.setStagedRowCount(stagedRows);
-        upload.setLifecycleMessage("Import committed into onboarding staging. Principal approval can activate this batch after review.");
+        WorkbookUserProvisioningService.ProvisioningResult provisioning = workbookUserProvisioningService.provisionCommittedWorkbook(upload);
+        upload.setLifecycleMessage("Import committed, staged, and role accounts provisioned from workbook data.");
         uploadRepository.save(upload);
-        return action(upload, "Import committed into onboarding staging and is ready for principal approval.");
+        return action(upload, "Import committed into onboarding staging. " + provisioningMessage(provisioning));
+    }
+
+    private String provisioningMessage(WorkbookUserProvisioningService.ProvisioningResult provisioning) {
+        if (provisioning == null || !provisioning.didProvision()) {
+            return "No Teacher, Student, or Parent accounts were provisioned because no matching staged workbook rows were found.";
+        }
+        return "Provisioned " + provisioning.teacherUsersCreated() + " teacher users, "
+                + provisioning.studentUsersCreated() + " student users, "
+                + provisioning.parentUsersCreated() + " parent users; materialized "
+                + provisioning.studentsMaterialized() + " students and "
+                + provisioning.teacherAssignmentsMaterialized() + " teacher assignments.";
     }
 
     @Transactional

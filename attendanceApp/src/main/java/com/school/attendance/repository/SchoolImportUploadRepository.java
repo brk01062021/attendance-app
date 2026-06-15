@@ -38,6 +38,7 @@ public interface SchoolImportUploadRepository extends JpaRepository<SchoolImport
             """)
     List<SchoolImportUploadSummaryProjection> findUploadSummariesForSchool(@Param("schoolCode") String schoolCode);
     Optional<SchoolImportUpload> findFirstBySchoolCodeIgnoreCaseAndChecksumAndRolledBackFalseOrderByUploadedAtDesc(String schoolCode, String checksum);
+    Optional<SchoolImportUpload> findFirstBySchoolCodeIgnoreCaseAndCommittedTrueAndRolledBackFalseOrderByCommittedAtDesc(String schoolCode);
 
 
     @Query("""
