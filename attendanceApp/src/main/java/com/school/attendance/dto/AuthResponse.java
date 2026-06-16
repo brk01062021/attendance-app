@@ -8,6 +8,8 @@ public class AuthResponse {
     private String schoolCode; // external immutable SaaS tenant id
     private Long teacherId;
     private String teacherName;
+    private Long studentId;
+    private String studentName;
     private String displayName;
     private String schoolName;
     private String role;
@@ -61,12 +63,30 @@ public class AuthResponse {
                         String role,
                         boolean forcePasswordChange,
                         boolean credentialsActive) {
+        this(token, userId, schoolId, schoolCode, teacherId, teacherName, null, null, displayName, schoolName, role, forcePasswordChange, credentialsActive);
+    }
+
+    public AuthResponse(String token,
+                        Long userId,
+                        Long schoolId,
+                        String schoolCode,
+                        Long teacherId,
+                        String teacherName,
+                        Long studentId,
+                        String studentName,
+                        String displayName,
+                        String schoolName,
+                        String role,
+                        boolean forcePasswordChange,
+                        boolean credentialsActive) {
         this.token = token;
         this.userId = userId;
         this.schoolId = schoolId;
         this.schoolCode = schoolCode;
         this.teacherId = teacherId;
         this.teacherName = teacherName;
+        this.studentId = studentId;
+        this.studentName = studentName;
         this.displayName = displayName;
         this.schoolName = schoolName;
         this.role = role;
@@ -81,6 +101,8 @@ public class AuthResponse {
     public String getExternalSchoolId() { return schoolCode; }
     public Long getTeacherId() { return teacherId; }
     public String getTeacherName() { return teacherName; }
+    public Long getStudentId() { return studentId; }
+    public String getStudentName() { return studentName; }
     public String getDisplayName() { return displayName; }
     public String getSchoolName() { return schoolName; }
     public String getRole() { return role; }
