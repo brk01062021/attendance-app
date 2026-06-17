@@ -22,6 +22,12 @@ public class ActivityMedia {
     @Column(name = "content_type", length = 100)
     private String contentType;
 
+    @Column(name = "file_size")
+    private Long fileSize;
+
+    @Column(name = "display_order")
+    private Integer displayOrder = 0;
+
     @Column(name = "storage_key", length = 1000)
     private String storageKey;
 
@@ -47,6 +53,10 @@ public class ActivityMedia {
     public void setFileName(String fileName) { this.fileName = fileName; }
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
+    public Long getFileSize() { return fileSize; }
+    public void setFileSize(Long fileSize) { this.fileSize = fileSize; }
+    public Integer getDisplayOrder() { return displayOrder; }
+    public void setDisplayOrder(Integer displayOrder) { this.displayOrder = displayOrder; }
     public String getStorageKey() { return storageKey; }
     public void setStorageKey(String storageKey) { this.storageKey = storageKey; }
     public ActivityMediaType getMediaType() { return mediaType; }
