@@ -1,8 +1,11 @@
 package com.school.attendance.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.attendance.dto.LoginRequest;
 import com.school.attendance.entity.AppUser;
 import com.school.attendance.repository.AppUserRepository;
+import com.school.attendance.repository.SchoolImportStagingRecordRepository;
+import com.school.attendance.repository.SchoolImportUploadRepository;
 import com.school.attendance.security.JwtUtil;
 import com.school.attendance.service.onboarding.SchoolRegistrationService;
 import org.junit.jupiter.api.Test;
@@ -23,7 +26,18 @@ class AuthControllerTenantBindingTest {
         PasswordEncoder encoder = mock(PasswordEncoder.class);
         JwtUtil jwtUtil = mock(JwtUtil.class);
         SchoolRegistrationService onboarding = mock(SchoolRegistrationService.class);
-        AuthController controller = new AuthController(repository, encoder, jwtUtil, onboarding);
+        SchoolImportUploadRepository schoolImportUploadRepository = mock(SchoolImportUploadRepository.class);
+        SchoolImportStagingRecordRepository schoolImportStagingRecordRepository = mock(SchoolImportStagingRecordRepository.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        AuthController controller = new AuthController(
+                repository,
+                encoder,
+                jwtUtil,
+                onboarding,
+                schoolImportUploadRepository,
+                schoolImportStagingRecordRepository,
+                objectMapper
+        );
 
         LoginRequest request = new LoginRequest();
         request.setUsername("brk1.admin");
@@ -45,7 +59,18 @@ class AuthControllerTenantBindingTest {
         PasswordEncoder encoder = mock(PasswordEncoder.class);
         JwtUtil jwtUtil = mock(JwtUtil.class);
         SchoolRegistrationService onboarding = mock(SchoolRegistrationService.class);
-        AuthController controller = new AuthController(repository, encoder, jwtUtil, onboarding);
+        SchoolImportUploadRepository schoolImportUploadRepository = mock(SchoolImportUploadRepository.class);
+        SchoolImportStagingRecordRepository schoolImportStagingRecordRepository = mock(SchoolImportStagingRecordRepository.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        AuthController controller = new AuthController(
+                repository,
+                encoder,
+                jwtUtil,
+                onboarding,
+                schoolImportUploadRepository,
+                schoolImportStagingRecordRepository,
+                objectMapper
+        );
 
         AppUser user = new AppUser();
         user.setUsername("tst2.admin");
