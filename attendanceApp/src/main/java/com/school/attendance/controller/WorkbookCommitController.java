@@ -6,6 +6,8 @@ import com.school.attendance.dto.imports.ImportUploadHistoryDTO;
 import com.school.attendance.entity.SchoolImportUpload;
 import com.school.attendance.repository.SchoolImportUploadRepository;
 import com.school.attendance.repository.SchoolImportUploadSummaryProjection;
+import com.school.attendance.repository.StudentRepository;
+import com.school.attendance.repository.TeacherAssignmentRepository;
 import com.school.attendance.service.WorkbookImportService;
 import com.school.attendance.tenant.TenantUtils;
 import org.springframework.web.bind.annotation.*;
@@ -23,11 +25,17 @@ public class WorkbookCommitController {
 
     private final WorkbookImportService workbookImportService;
     private final SchoolImportUploadRepository uploadRepository;
+    private final StudentRepository studentRepository;
+    private final TeacherAssignmentRepository teacherAssignmentRepository;
 
     public WorkbookCommitController(WorkbookImportService workbookImportService,
-                                    SchoolImportUploadRepository uploadRepository) {
+                                    SchoolImportUploadRepository uploadRepository,
+                                    StudentRepository studentRepository,
+                                    TeacherAssignmentRepository teacherAssignmentRepository) {
         this.workbookImportService = workbookImportService;
         this.uploadRepository = uploadRepository;
+        this.studentRepository = studentRepository;
+        this.teacherAssignmentRepository = teacherAssignmentRepository;
     }
 
     @GetMapping("/status")
@@ -48,13 +56,24 @@ public class WorkbookCommitController {
         data.put("latestFileName", latest == null ? null : latest.getFileName());
         data.put("latestStatus", latest == null ? "NO_WORKBOOK" : latest.getStatus());
         data.put("latestLifecycleMessage", latest == null ? "No school data workbook has been uploaded yet." : latest.getLifecycleMessage());
+        long materializedStudents = studentRepository.count();
+        long materializedTeacherAssignments = teacherAssignmentRepository.count();
+        boolean recommitAvailable = latestCommitted != null;
         data.put("readyToCommit", latestCommitCandidate != null);
         data.put("commitCandidateUploadId", latestCommitCandidate == null ? null : latestCommitCandidate.getId());
+        data.put("recommitAvailable", recommitAvailable);
+        data.put("recommitCandidateUploadId", latestCommitted == null ? null : latestCommitted.getId());
         data.put("committed", latestCommitted != null);
         data.put("committedWorkbookCount", uploads.stream().filter(upload -> upload.isCommitted() && !upload.isRolledBack()).count());
         data.put("latestCommittedUploadId", latestCommitted == null ? null : latestCommitted.getId());
         data.put("latestCommittedAt", latestCommitted == null ? null : latestCommitted.getCommittedAt());
         data.put("stagedRowCount", latestCommitted == null ? 0 : latestCommitted.getStagedRowCount());
+        data.put("materializedStudents", materializedStudents);
+        data.put("materializedTeacherAssignments", materializedTeacherAssignments);
+        data.put("operationalDataReady", materializedStudents > 0 && materializedTeacherAssignments > 0);
+        data.put("operationalDataWarning", latestCommitted != null && (materializedStudents == 0 || materializedTeacherAssignments == 0)
+                ? "Workbook is committed but operational students or teacher assignments are empty. Recommit this workbook to refresh runtime tables."
+                : null);
         data.put("rolledBack", latest != null && latest.isRolledBack());
         data.put("auditCount", uploads.size());
         data.put("generatedAt", LocalDateTime.now());
@@ -74,7 +93,13 @@ public class WorkbookCommitController {
         String tenantId = TenantUtils.requireValidSchoolId(resolveSchoolId(schoolId, request));
         Long targetUploadId = resolveUploadId(uploadId, request);
         if (targetUploadId == null) {
-            targetUploadId = findLatestCommitCandidate(uploadRepository.findTop20BySchoolCodeIgnoreCaseOrderByUploadedAtDesc(tenantId)).getId();
+            List<SchoolImportUpload> uploads = uploadRepository.findTop20BySchoolCodeIgnoreCaseOrderByUploadedAtDesc(tenantId);
+            Boolean recommit = request == null ? null : Boolean.valueOf(String.valueOf(request.getOrDefault("recommit", "false")));
+            if (Boolean.TRUE.equals(recommit)) {
+                targetUploadId = findLatestRollbackCandidate(uploads).getId();
+            } else {
+                targetUploadId = findLatestCommitCandidateOrCommitted(uploads).getId();
+            }
         }
         return ApiResponse.success("Workbook commit execution completed", workbookImportService.commit(targetUploadId, tenantId));
     }
@@ -114,6 +139,20 @@ public class WorkbookCommitController {
                 .filter(upload -> !"BLOCKED".equalsIgnoreCase(safe(upload.getStatus())))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("No validated workbook is available to commit. Upload and validate a clean workbook first."));
+    }
+
+    private SchoolImportUpload findLatestCommitCandidateOrCommitted(List<SchoolImportUpload> uploads) {
+        return uploads.stream()
+                .filter(upload -> !upload.isCommitted())
+                .filter(upload -> !upload.isRolledBack())
+                .filter(upload -> upload.getErrorCount() == 0)
+                .filter(upload -> !"BLOCKED".equalsIgnoreCase(safe(upload.getStatus())))
+                .findFirst()
+                .or(() -> uploads.stream()
+                        .filter(SchoolImportUpload::isCommitted)
+                        .filter(upload -> !upload.isRolledBack())
+                        .findFirst())
+                .orElseThrow(() -> new IllegalStateException("No validated or committed workbook is available to commit or recommit."));
     }
 
     private SchoolImportUpload findLatestRollbackCandidate(List<SchoolImportUpload> uploads) {

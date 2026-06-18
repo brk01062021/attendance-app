@@ -226,7 +226,12 @@ public class WorkbookImportService {
         }
         if (upload.isCommitted()) {
             WorkbookUserProvisioningService.ProvisioningResult provisioning = workbookUserProvisioningService.provisionCommittedWorkbook(upload);
-            return action(upload, "Import batch was already committed. No duplicate staging rows were created. " + provisioningMessage(provisioning));
+            upload.setStatus("COMMITTED");
+            upload.setCommitted(true);
+            upload.setRolledBack(false);
+            upload.setLifecycleMessage("Import recommitted from staged workbook data. Operational students, teacher assignments, and role accounts were refreshed.");
+            uploadRepository.save(upload);
+            return action(upload, "Import batch was recommitted safely. No duplicate staging rows were created. " + provisioningMessage(provisioning));
         }
         if (upload.getErrorCount() > 0 || "BLOCKED".equalsIgnoreCase(upload.getStatus())) {
             throw new IllegalStateException("Resolve workbook validation errors before committing import data.");
@@ -240,9 +245,9 @@ public class WorkbookImportService {
         upload.setCommittedAt(LocalDateTime.now());
         upload.setStagedRowCount(stagedRows);
         WorkbookUserProvisioningService.ProvisioningResult provisioning = workbookUserProvisioningService.provisionCommittedWorkbook(upload);
-        upload.setLifecycleMessage("Import committed, staged, and role accounts provisioned from workbook data.");
+        upload.setLifecycleMessage("Import committed, staged, and operational data provisioned from workbook data.");
         uploadRepository.save(upload);
-        return action(upload, "Import committed into onboarding staging. " + provisioningMessage(provisioning));
+        return action(upload, "Import committed into onboarding staging and operational tables. " + provisioningMessage(provisioning));
     }
 
     private String provisioningMessage(WorkbookUserProvisioningService.ProvisioningResult provisioning) {
@@ -253,7 +258,7 @@ public class WorkbookImportService {
                 + provisioning.studentUsersCreated() + " student users, "
                 + provisioning.parentUsersCreated() + " parent users; materialized "
                 + provisioning.studentsMaterialized() + " students and "
-                + provisioning.teacherAssignmentsMaterialized() + " teacher assignments.";
+                + provisioning.teacherAssignmentsMaterialized() + " teacher assignments into operational tables.";
     }
 
     @Transactional

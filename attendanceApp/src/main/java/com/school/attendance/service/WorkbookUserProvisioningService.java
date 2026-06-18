@@ -116,16 +116,19 @@ public class WorkbookUserProvisioningService {
         }
         teacherAssignmentRepository.saveAll(assignments);
 
-        List<AppUser> existingTenantUsers = appUserRepository.findBySchoolCodeIgnoreCase(schoolCode);
-        List<AppUser> generatedRoleUsers = existingTenantUsers.stream()
-                .filter(user -> Set.of("TEACHER", "STUDENT", "PARENT").contains(SecurityAccess.normalizeRole(user.getRole())))
-                .toList();
-        appUserRepository.deleteAllInBatch(generatedRoleUsers);
+        // Recommit must be fully idempotent. Teacher, student, and parent accounts are generated
+        // from the workbook, so before re-materializing them we remove every previously generated
+        // workbook role user for this tenant in a single database operation. This also cleans up
+        // duplicates that may have been created by older recommit logic while preserving Admin and
+        // Principal accounts.
+        Set<String> workbookGeneratedRoles = Set.of("TEACHER", "STUDENT", "PARENT");
+        appUserRepository.deleteProvisionedRoleUsers(schoolCode, workbookGeneratedRoles);
+        appUserRepository.flush();
 
-        List<AppUser> users = new ArrayList<>();
+        Map<String, AppUser> usersByTenantRoleUsername = new LinkedHashMap<>();
         for (Map<String, String> teacher : teachersByWorkbookId.values()) {
             String teacherWorkbookId = value(teacher, "teacher_id");
-            users.add(user(
+            putUser(usersByTenantRoleUsername, user(
                     teacherWorkbookId,
                     "TEACHER",
                     firstNonBlank(value(teacher, "teacher_name"), teacherWorkbookId),
@@ -138,7 +141,7 @@ public class WorkbookUserProvisioningService {
 
         for (Map<String, String> student : studentsByAdmission.values()) {
             String admissionNo = value(student, "admission_no");
-            users.add(user(
+            putUser(usersByTenantRoleUsername, user(
                     admissionNo,
                     "STUDENT",
                     firstNonBlank(value(student, "student_name"), admissionNo),
@@ -161,7 +164,7 @@ public class WorkbookUserProvisioningService {
                 ));
         for (Map<String, String> parent : parentsByMobile.values()) {
             String mobile = normalizeMobile(value(parent, "mobile"));
-            users.add(user(
+            putUser(usersByTenantRoleUsername, user(
                     mobile,
                     "PARENT",
                     firstNonBlank(value(parent, "parent_name"), mobile),
@@ -172,8 +175,16 @@ public class WorkbookUserProvisioningService {
             ));
         }
 
-        appUserRepository.saveAll(users);
+        appUserRepository.saveAll(usersByTenantRoleUsername.values());
         return new ProvisioningResult(students.size(), assignments.size(), teachersByWorkbookId.size(), studentsByAdmission.size(), parentsByMobile.size());
+    }
+
+    private void putUser(Map<String, AppUser> usersByTenantRoleUsername, AppUser user) {
+        if (user == null || user.getUsername() == null || user.getUsername().isBlank()) return;
+        String key = normalizedSchoolCode(user.getSchoolCode())
+                + "|" + SecurityAccess.normalizeRole(user.getRole())
+                + "|" + user.getUsername().trim().toUpperCase(Locale.ROOT);
+        usersByTenantRoleUsername.putIfAbsent(key, user);
     }
 
     private AppUser user(String username,
