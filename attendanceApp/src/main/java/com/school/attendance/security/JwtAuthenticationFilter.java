@@ -59,8 +59,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
         } catch (Exception e) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
+            /*
+             * Do not hard-fail permitAll/local MVP endpoints when the browser has an
+             * old or invalid JWT in localStorage. Some Day 4 web calls, including
+             * multipart finance uploads, may still include a stale Authorization
+             * header after credentials/role changes. Clearing the security context and
+             * continuing lets controller-level tenant validation handle the request
+             * instead of returning an empty 401 before the controller is reached.
+             */
+            SecurityContextHolder.clearContext();
         }
 
         filterChain.doFilter(request, response);
