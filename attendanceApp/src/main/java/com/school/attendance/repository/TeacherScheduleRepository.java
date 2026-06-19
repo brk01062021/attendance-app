@@ -10,6 +10,14 @@ import java.util.List;
 
 public interface TeacherScheduleRepository extends JpaRepository<TeacherSchedule, Long> {
 
+    List<TeacherSchedule> findBySchoolIdIgnoreCaseAndActiveTimetableTrueOrderByScheduleDateAscStartTimeAscTeacherNameAsc(String schoolId);
+
+    Integer countBySchoolIdIgnoreCaseAndActiveTimetableTrue(String schoolId);
+
+    void deleteBySchoolIdIgnoreCaseAndActiveTimetableTrue(String schoolId);
+
+    List<TeacherSchedule> findBySchoolIdIgnoreCaseAndImportBatchIdOrderByScheduleDateAscStartTimeAscTeacherNameAsc(String schoolId, String importBatchId);
+
     List<TeacherSchedule> findByScheduleDateOrderByStartTimeAscTeacherNameAsc(LocalDate scheduleDate);
 
     List<TeacherSchedule> findByTeacherIdAndScheduleDateOrderByStartTimeAsc(

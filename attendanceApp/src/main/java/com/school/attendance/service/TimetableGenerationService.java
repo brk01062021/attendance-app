@@ -28,10 +28,14 @@ import com.school.attendance.dto.TimetableLiveResponseDTO;
 import com.school.attendance.dto.TimetableNotificationDTO;
 import com.school.attendance.dto.TimetableVersionDTO;
 import com.school.attendance.entity.TimetableImportFileMetadata;
+import com.school.attendance.entity.TeacherSchedule;
+import com.school.attendance.entity.TeacherScheduleStatus;
 import com.school.attendance.repository.TimetableImportFileMetadataRepository;
+import com.school.attendance.repository.TeacherScheduleRepository;
 import com.school.attendance.storage.FileStorageService;
 import com.school.attendance.storage.StoredFile;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -43,6 +47,8 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -85,10 +91,14 @@ public class TimetableGenerationService {
 
     private final FileStorageService fileStorageService;
     private final TimetableImportFileMetadataRepository timetableImportFileMetadataRepository;
+    private final TeacherScheduleRepository teacherScheduleRepository;
 
-    public TimetableGenerationService(FileStorageService fileStorageService, TimetableImportFileMetadataRepository timetableImportFileMetadataRepository) {
+    public TimetableGenerationService(FileStorageService fileStorageService,
+                                      TimetableImportFileMetadataRepository timetableImportFileMetadataRepository,
+                                      TeacherScheduleRepository teacherScheduleRepository) {
         this.fileStorageService = fileStorageService;
         this.timetableImportFileMetadataRepository = timetableImportFileMetadataRepository;
+        this.teacherScheduleRepository = teacherScheduleRepository;
     }
 
     public TimetableGenerationResponseDTO generate(TimetableGenerationRequestDTO request) {
@@ -1122,6 +1132,7 @@ public class TimetableGenerationService {
         return publish(batchId, null);
     }
 
+    @Transactional
     public TimetablePublishResponseDTO publish(String batchId, String approvedByName) {
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(batchId);
         refreshBatch(batch);
@@ -1153,6 +1164,7 @@ public class TimetableGenerationService {
             activePublishedBatchBySchool.put(schoolId, batch.getGeneratedBatchId());
             publishLocks.put(batch.getGeneratedBatchId(), true);
             updateTimetableImportFileMetadataStatus(batch.getGeneratedBatchId(), "PUBLISHED");
+            materializeActiveTeacherSchedule(schoolId, batch, publishedAt);
             ExistingTimetableImportResponseDTO publishedImport = existingTimetableImports.get(batch.getGeneratedBatchId());
             if (publishedImport != null) {
                 publishedImport.setPublishedBatchId(batch.getGeneratedBatchId());
@@ -1357,26 +1369,28 @@ public class TimetableGenerationService {
         String targetBatchId = isBlank(batchId) ? publishedBatchId : batchId;
 
         if (isBlank(targetBatchId)) {
+            List<TimetableEntryDTO> restored = activeTeacherScheduleEntries(safeSchoolId);
+            if (!restored.isEmpty()) {
+                List<TimetableEntryDTO> filteredRestored = filterLiveEntries(restored, safeRole, teacherId, teacherName, className, section);
+                String scope = "ADMIN".equals(safeRole) || "PRINCIPAL".equals(safeRole) ? "WHOLE_SCHOOL" : safeRole;
+                return new TimetableLiveResponseDTO(null, safeRole, scope, true, true, "Latest active timetable loaded from published operational schedule.", filteredRestored);
+            }
             return new TimetableLiveResponseDTO(null, safeRole, safeRole, false, false, "No published imported timetable is active yet. Existing timetable screens remain safe and hidden until publish.", List.of());
+        }
+
+        if (!generatedBatches.containsKey(targetBatchId)) {
+            List<TimetableEntryDTO> restored = activeTeacherScheduleEntries(safeSchoolId);
+            if (!restored.isEmpty()) {
+                List<TimetableEntryDTO> filteredRestored = filterLiveEntries(restored, safeRole, teacherId, teacherName, className, section);
+                String scope = "ADMIN".equals(safeRole) || "PRINCIPAL".equals(safeRole) ? "WHOLE_SCHOOL" : safeRole;
+                return new TimetableLiveResponseDTO(targetBatchId, safeRole, scope, true, true, "Latest published timetable loaded from persisted operational schedule.", filteredRestored);
+            }
         }
 
         TimetableGenerationResponseDTO batch = findBatchOrCreateFallback(targetBatchId);
         refreshBatch(batch);
         boolean published = batch.getGeneratedBatchId().equals(publishedBatchId) && Boolean.TRUE.equals(publishLocks.get(batch.getGeneratedBatchId()));
-        List<TimetableEntryDTO> filtered = new ArrayList<>(batch.getEntries());
-        if ("TEACHER".equals(safeRole)) {
-            if (teacherId != null) {
-                filtered = filtered.stream().filter(e -> teacherId.equals(e.getTeacherId())).collect(Collectors.toList());
-            } else if (!isBlank(teacherName)) {
-                String safeTeacherName = teacherName.trim();
-                filtered = filtered.stream()
-                        .filter(e -> !isBlank(e.getTeacherName()) && safeTeacherName.equalsIgnoreCase(e.getTeacherName().trim()))
-                        .collect(Collectors.toList());
-            }
-        } else if (("STUDENT".equals(safeRole) || "PARENT".equals(safeRole)) && !isBlank(className) && !isBlank(section)) {
-            filtered = filtered.stream().filter(e -> className.equalsIgnoreCase(e.getClassName()) && section.equalsIgnoreCase(e.getSection())).collect(Collectors.toList());
-        }
-        filtered.sort(Comparator.comparing(TimetableEntryDTO::getDayOfWeek, Comparator.nullsLast(String::compareToIgnoreCase)).thenComparing(TimetableEntryDTO::getPeriodNumber, Comparator.nullsLast(Integer::compareTo)));
+        List<TimetableEntryDTO> filtered = filterLiveEntries(batch.getEntries(), safeRole, teacherId, teacherName, className, section);
         String scope = "ADMIN".equals(safeRole) || "PRINCIPAL".equals(safeRole) ? "WHOLE_SCHOOL" : safeRole;
         if (!isAdminRole(safeRole) && !published) {
             return new TimetableLiveResponseDTO(batch.getGeneratedBatchId(), safeRole, scope, false, false, "Timetable is not published yet. Draft timetables are hidden for Teacher, Student, and Parent roles.", List.of());
@@ -1766,11 +1780,18 @@ public class TimetableGenerationService {
         if (!isBlank(latestPublishedBatchId) && generatedBatches.containsKey(latestPublishedBatchId) && Boolean.TRUE.equals(publishLocks.get(latestPublishedBatchId))) {
             return latestPublishedBatchId;
         }
-        return publishLocks.entrySet().stream()
+        String inMemory = publishLocks.entrySet().stream()
                 .filter(entry -> Boolean.TRUE.equals(entry.getValue()) && generatedBatches.containsKey(entry.getKey()))
                 .map(Map.Entry::getKey)
                 .reduce((first, second) -> second)
                 .orElse(null);
+        if (!isBlank(inMemory)) return inMemory;
+        if (safeSchoolId != null) {
+            return timetableImportFileMetadataRepository.findTopBySchoolIdAndStatusOrderByUploadedAtDesc(safeSchoolId, "PUBLISHED")
+                    .map(TimetableImportFileMetadata::getImportBatchId)
+                    .orElse(null);
+        }
+        return null;
     }
 
     private void archivePreviousActiveTimetable(String schoolId, String newBatchId, String archivedAt, String approvedBy) {
@@ -1787,6 +1808,114 @@ public class TimetableGenerationService {
             previousImport.setStatus("ARCHIVED");
             previousImport.setMessage("Archived automatically because a newer imported timetable was published.");
         }
+    }
+
+
+    private void materializeActiveTeacherSchedule(String schoolId, TimetableGenerationResponseDTO batch, String publishedAt) {
+        if (batch == null || batch.getEntries() == null || batch.getEntries().isEmpty()) return;
+        String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        LocalDateTime safePublishedAt;
+        try {
+            safePublishedAt = isBlank(publishedAt) ? LocalDateTime.now() : LocalDateTime.parse(publishedAt);
+        } catch (Exception ignored) {
+            safePublishedAt = LocalDateTime.now();
+        }
+        teacherScheduleRepository.deleteBySchoolIdIgnoreCaseAndActiveTimetableTrue(safeSchoolId);
+        List<TeacherSchedule> schedules = new ArrayList<>();
+        for (TimetableEntryDTO entry : batch.getEntries()) {
+            TeacherSchedule schedule = new TeacherSchedule();
+            schedule.setSchoolId(safeSchoolId);
+            schedule.setAcademicYear(null);
+            schedule.setImportBatchId(batch.getGeneratedBatchId());
+            schedule.setSourceType("TIMETABLE_IMPORT");
+            schedule.setActiveTimetable(true);
+            schedule.setPublishedAt(safePublishedAt);
+            schedule.setTeacherId(entry.getTeacherId());
+            schedule.setTeacherName(entry.getTeacherName());
+            schedule.setClassName(entry.getClassName());
+            schedule.setSection(entry.getSection());
+            schedule.setSubjectName(entry.getSubjectName());
+            schedule.setScheduleDate(scheduleDateForDay(entry.getDayOfWeek()));
+            schedule.setStartTime(parseEntryTime(entry.getStartTime()));
+            schedule.setEndTime(parseEntryTime(entry.getEndTime()));
+            schedule.setStatus(TeacherScheduleStatus.AVAILABLE);
+            schedule.setReplacementClass(false);
+            schedules.add(schedule);
+        }
+        teacherScheduleRepository.saveAll(schedules);
+    }
+
+    private List<TimetableEntryDTO> activeTeacherScheduleEntries(String schoolId) {
+        String safeSchoolId = isBlank(schoolId) ? "DEMO" : schoolId.trim().toUpperCase();
+        List<TeacherSchedule> schedules = teacherScheduleRepository.findBySchoolIdIgnoreCaseAndActiveTimetableTrueOrderByScheduleDateAscStartTimeAscTeacherNameAsc(safeSchoolId);
+        List<TimetableEntryDTO> entries = new ArrayList<>();
+        int sequence = 1;
+        for (TeacherSchedule schedule : schedules) {
+            entries.add(new TimetableEntryDTO(
+                    "LIVE-" + sequence++,
+                    schedule.getClassName(),
+                    schedule.getSection(),
+                    schedule.getSubjectName(),
+                    schedule.getTeacherId(),
+                    schedule.getTeacherName(),
+                    schedule.getScheduleDate() == null ? null : schedule.getScheduleDate().getDayOfWeek().name(),
+                    periodNumberFor(schedule.getStartTime()),
+                    null,
+                    schedule.getStartTime() == null ? null : schedule.getStartTime().format(TIME_FORMATTER),
+                    schedule.getEndTime() == null ? null : schedule.getEndTime().format(TIME_FORMATTER),
+                    false,
+                    false,
+                    false
+            ));
+        }
+        return entries;
+    }
+
+    private List<TimetableEntryDTO> filterLiveEntries(List<TimetableEntryDTO> entries, String safeRole, Long teacherId, String teacherName, String className, String section) {
+        List<TimetableEntryDTO> filtered = entries == null ? new ArrayList<>() : new ArrayList<>(entries);
+        if ("TEACHER".equals(safeRole)) {
+            if (teacherId != null) {
+                filtered = filtered.stream().filter(e -> teacherId.equals(e.getTeacherId())).collect(Collectors.toList());
+            } else if (!isBlank(teacherName)) {
+                String safeTeacherName = teacherName.trim();
+                filtered = filtered.stream()
+                        .filter(e -> !isBlank(e.getTeacherName()) && safeTeacherName.equalsIgnoreCase(e.getTeacherName().trim()))
+                        .collect(Collectors.toList());
+            }
+        } else if (("STUDENT".equals(safeRole) || "PARENT".equals(safeRole)) && !isBlank(className) && !isBlank(section)) {
+            filtered = filtered.stream().filter(e -> className.equalsIgnoreCase(e.getClassName()) && section.equalsIgnoreCase(e.getSection())).collect(Collectors.toList());
+        }
+        filtered.sort(Comparator.comparing(TimetableEntryDTO::getDayOfWeek, Comparator.nullsLast(String::compareToIgnoreCase)).thenComparing(TimetableEntryDTO::getPeriodNumber, Comparator.nullsLast(Integer::compareTo)));
+        return filtered;
+    }
+
+    private LocalDate scheduleDateForDay(String dayOfWeek) {
+        DayOfWeek target;
+        try {
+            target = DayOfWeek.valueOf(isBlank(dayOfWeek) ? "MONDAY" : dayOfWeek.trim().toUpperCase());
+        } catch (Exception ignored) {
+            target = DayOfWeek.MONDAY;
+        }
+        LocalDate monday = LocalDate.of(2026, 6, 15);
+        return monday.plusDays(target.getValue() - DayOfWeek.MONDAY.getValue());
+    }
+
+    private LocalTime parseEntryTime(String value) {
+        if (isBlank(value)) return null;
+        try {
+            return LocalTime.parse(value.trim(), TIME_FORMATTER);
+        } catch (Exception ignored) {
+            try {
+                return LocalTime.parse(value.trim());
+            } catch (Exception ignoredAgain) {
+                return null;
+            }
+        }
+    }
+
+    private Integer periodNumberFor(LocalTime startTime) {
+        if (startTime == null) return null;
+        return Math.max(1, ((startTime.getHour() * 60 + startTime.getMinute()) - (9 * 60)) / 45 + 1);
     }
 
     public List<TimetableEntryDTO> activePublishedPeriods(String schoolId, String role, Long teacherId, String teacherName, String className, String section) {

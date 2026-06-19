@@ -9,4 +9,6 @@ public interface TimetableImportFileMetadataRepository extends JpaRepository<Tim
     Optional<TimetableImportFileMetadata> findTopBySchoolIdOrderByUploadedAtDesc(String schoolId);
 
     Optional<TimetableImportFileMetadata> findTopByImportBatchIdOrderByUploadedAtDesc(String importBatchId);
+
+    Optional<TimetableImportFileMetadata> findTopBySchoolIdAndStatusOrderByUploadedAtDesc(String schoolId, String status);
 }

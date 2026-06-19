@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.LocalDateTime;
 
 @Entity
 public class TeacherSchedule {
@@ -11,6 +12,13 @@ public class TeacherSchedule {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    private String schoolId;
+    private String academicYear;
+    private String importBatchId;
+    private String sourceType;
+    private Boolean activeTimetable = false;
+    private LocalDateTime publishedAt;
 
     private Long teacherId;
     private String teacherName;
@@ -33,6 +41,54 @@ public class TeacherSchedule {
 
     public Long getId() {
         return id;
+    }
+
+    public String getSchoolId() {
+        return schoolId;
+    }
+
+    public void setSchoolId(String schoolId) {
+        this.schoolId = schoolId;
+    }
+
+    public String getAcademicYear() {
+        return academicYear;
+    }
+
+    public void setAcademicYear(String academicYear) {
+        this.academicYear = academicYear;
+    }
+
+    public String getImportBatchId() {
+        return importBatchId;
+    }
+
+    public void setImportBatchId(String importBatchId) {
+        this.importBatchId = importBatchId;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
+    public Boolean getActiveTimetable() {
+        return activeTimetable;
+    }
+
+    public void setActiveTimetable(Boolean activeTimetable) {
+        this.activeTimetable = activeTimetable;
+    }
+
+    public LocalDateTime getPublishedAt() {
+        return publishedAt;
+    }
+
+    public void setPublishedAt(LocalDateTime publishedAt) {
+        this.publishedAt = publishedAt;
     }
 
     public Long getTeacherId() {
