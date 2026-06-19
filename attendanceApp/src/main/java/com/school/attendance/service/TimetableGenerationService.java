@@ -1686,6 +1686,39 @@ public class TimetableGenerationService {
 
         ExistingTimetableImportStatusDTO status = new ExistingTimetableImportStatusDTO();
         status.setSchoolId(safeSchoolId);
+
+        List<TeacherSchedule> activeSchedules = teacherScheduleRepository
+                .findBySchoolIdIgnoreCaseAndActiveTimetableTrueOrderByScheduleDateAscStartTimeAscTeacherNameAsc(safeSchoolId);
+        if (!activeSchedules.isEmpty()) {
+            String activeScheduleBatchId = activeSchedules.stream()
+                    .map(TeacherSchedule::getImportBatchId)
+                    .filter(batchId -> !isBlank(batchId))
+                    .findFirst()
+                    .orElse(activeBatchId);
+            status.setImportBatchId(activeScheduleBatchId);
+            status.setPublishedBatchId(activeScheduleBatchId);
+            status.setTotalClasses((int) activeSchedules.stream()
+                    .map(TeacherSchedule::getClassName)
+                    .filter(value -> !isBlank(value))
+                    .distinct()
+                    .count());
+            status.setTotalSections((int) activeSchedules.stream()
+                    .map(item -> (isBlank(item.getClassName()) ? "" : item.getClassName().trim()) + "|" + (isBlank(item.getSection()) ? "" : item.getSection().trim()))
+                    .filter(value -> !"|".equals(value))
+                    .distinct()
+                    .count());
+            status.setTotalTeachers((int) activeSchedules.stream()
+                    .map(TeacherSchedule::getTeacherId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .count());
+            status.setTotalPeriodAllocations(activeSchedules.size());
+            status.setStatus("PUBLISHED_ACTIVE");
+            status.setLabel("Published Active");
+            status.setMessage("Final timetable is published and active. " + activeSchedules.size() + " periods are visible to Teachers, Students, and Parents.");
+            return status;
+        }
+
         if (latest == null) {
             status.setStatus("NO_TIMETABLE_IMPORTED");
             status.setLabel("No Timetable Imported");
