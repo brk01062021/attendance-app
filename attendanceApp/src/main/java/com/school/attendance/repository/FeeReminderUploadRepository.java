@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface FeeReminderUploadRepository extends JpaRepository<FeeReminderUpload, Long> {
     List<FeeReminderUpload> findTop20BySchoolIdIgnoreCaseOrderByCreatedAtDesc(String schoolId);
+    List<FeeReminderUpload> findBySchoolIdIgnoreCaseAndIdIn(String schoolId, List<Long> ids);
 }

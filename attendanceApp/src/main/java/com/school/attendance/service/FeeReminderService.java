@@ -117,12 +117,44 @@ public class FeeReminderService {
         refreshCounts(upload, allRows);
         upload.setStatus(upload.getReadyRows() == 0 ? "SENT" : "PARTIALLY_SENT");
         uploadRepository.save(upload);
-        return new FeeReminderDtos.SendResult(toSummary(upload), notificationsCreated, rowsSent, Math.max(0, allRows.size() - rowsSent));
+        int rowsSkipped = Math.max(0, allRows.size() - rowsSent);
+
+        String message;
+        if (rowsSent == 0) {
+            message = "No new reminders were sent.";
+        } else if (rowsSkipped > 0) {
+            message = rowsSent + " reminder(s) sent. " + rowsSkipped + " row(s) skipped.";
+        } else {
+            message = rowsSent + " reminder(s) sent successfully.";
+        }
+
+        return new FeeReminderDtos.SendResult(
+                toSummary(upload),
+                notificationsCreated,
+                rowsSent,
+                rowsSkipped,
+                message
+        );
     }
 
     public List<FeeReminderDtos.History> history(String schoolId) {
         return historyRepository.findTop100BySchoolIdIgnoreCaseOrderBySentAtDesc(normalizeSchoolId(schoolId)).stream().map(this::toHistory).toList();
     }
+
+    @Transactional
+    public Map<String, Object> deleteUploads(String schoolId, List<Long> uploadIds) {
+        String safeSchoolId = normalizeSchoolId(schoolId);
+        List<Long> safeIds = uploadIds == null ? List.of() : uploadIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (safeIds.isEmpty()) return Map.of("deleted", 0);
+        List<FeeReminderUpload> ownedUploads = uploadRepository.findBySchoolIdIgnoreCaseAndIdIn(safeSchoolId, safeIds);
+        List<Long> ownedIds = ownedUploads.stream().map(FeeReminderUpload::getId).toList();
+        if (ownedIds.isEmpty()) return Map.of("deleted", 0);
+        historyRepository.deleteBySchoolIdIgnoreCaseAndUploadIdIn(safeSchoolId, ownedIds);
+        rowRepository.deleteBySchoolIdIgnoreCaseAndUploadIdIn(safeSchoolId, ownedIds);
+        uploadRepository.deleteAll(ownedUploads);
+        return Map.of("deleted", ownedIds.size());
+    }
+
 
     public List<FeeReminderDtos.History> parentHistory(String schoolId, Long parentUserId) {
         return historyRepository.findTop50BySchoolIdIgnoreCaseAndParentUserIdOrderBySentAtDesc(normalizeSchoolId(schoolId), parentUserId).stream().map(this::toHistory).toList();

@@ -7,4 +7,5 @@ import java.util.List;
 public interface FeeReminderRowRepository extends JpaRepository<FeeReminderRow, Long> {
     List<FeeReminderRow> findByUploadIdOrderByRowNumberAsc(Long uploadId);
     List<FeeReminderRow> findByUploadIdAndStatusOrderByRowNumberAsc(Long uploadId, String status);
+    void deleteBySchoolIdIgnoreCaseAndUploadIdIn(String schoolId, List<Long> uploadIds);
 }

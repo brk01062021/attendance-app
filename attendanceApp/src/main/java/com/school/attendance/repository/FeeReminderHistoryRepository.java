@@ -7,4 +7,5 @@ import java.util.List;
 public interface FeeReminderHistoryRepository extends JpaRepository<FeeReminderHistory, Long> {
     List<FeeReminderHistory> findTop100BySchoolIdIgnoreCaseOrderBySentAtDesc(String schoolId);
     List<FeeReminderHistory> findTop50BySchoolIdIgnoreCaseAndParentUserIdOrderBySentAtDesc(String schoolId, Long parentUserId);
+    void deleteBySchoolIdIgnoreCaseAndUploadIdIn(String schoolId, List<Long> uploadIds);
 }

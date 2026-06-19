@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/finance/fee-reminders")
@@ -28,6 +29,8 @@ public class FeeReminderController {
     public FeeReminderDtos.SendResult send(@PathVariable Long uploadId, @RequestParam String schoolId, @RequestParam(required = false) String sentBy) { return service.send(uploadId, schoolId, sentBy); }
     @GetMapping("/history")
     public List<FeeReminderDtos.History> history(@RequestParam String schoolId) { return service.history(schoolId); }
+    @DeleteMapping("/uploads")
+    public Map<String, Object> deleteUploads(@RequestParam String schoolId, @RequestBody Map<String, List<Long>> body) { return service.deleteUploads(schoolId, body == null ? List.of() : body.get("uploadIds")); }
     @GetMapping("/parent-history")
     public List<FeeReminderDtos.History> parentHistory(@RequestParam String schoolId, @RequestParam Long parentUserId) { return service.parentHistory(schoolId, parentUserId); }
 }
