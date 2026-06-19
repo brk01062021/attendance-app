@@ -1725,6 +1725,7 @@ public class TimetableGenerationService {
         return status;
     }
 
+    @Transactional
     public ExistingTimetableImportResponseDTO publishImportedTimetable(String importBatchId, String role, String approvedBy) {
         ExistingTimetableImportResponseDTO response = existingTimetableImports.get(importBatchId);
         if (response == null) {
@@ -1746,10 +1747,55 @@ public class TimetableGenerationService {
             response.setMessage("Imported timetable has validation errors or conflicts. Fix them before publishing.");
             return response;
         }
-        TimetablePublishResponseDTO publish = publishLock(importBatchId, role, approvedBy);
-        response.setPublishedBatchId(publish.getBatchId());
-        response.setStatus(Boolean.TRUE.equals(publish.getSuccess()) ? "PUBLISHED" : "PUBLISH_BLOCKED");
-        response.setMessage(publish.getMessage());
+
+        String safeSchoolId = isBlank(response.getSchoolId()) ? "DEMO" : response.getSchoolId().trim().toUpperCase();
+        TimetableGenerationResponseDTO batch = generatedBatches.get(importBatchId);
+        if (batch == null) {
+            batch = new TimetableGenerationResponseDTO();
+            batch.setGeneratedBatchId(importBatchId);
+            batch.setEntries(response.getPreviewEntries());
+            refreshBatch(batch);
+            generatedBatches.put(importBatchId, batch);
+        }
+        if ((batch.getEntries() == null || batch.getEntries().isEmpty()) && response.getPreviewEntries() != null && !response.getPreviewEntries().isEmpty()) {
+            batch.setEntries(response.getPreviewEntries());
+            refreshBatch(batch);
+            generatedBatches.put(importBatchId, batch);
+        }
+        if (batch.getEntries() == null || batch.getEntries().isEmpty()) {
+            response.setStatus("PUBLISH_BLOCKED");
+            response.setCanPublish(false);
+            response.setMessage("Publish blocked. Imported timetable has no period rows to activate. Upload and validate the timetable again.");
+            updateTimetableImportFileMetadataStatus(importBatchId, "PUBLISH_BLOCKED");
+            return response;
+        }
+
+        String publishedAt = LocalDateTime.now().toString();
+        String approvedByName = isBlank(approvedBy) ? (isBlank(role) ? "ADMIN" : role.trim().toUpperCase()) : approvedBy.trim();
+        archivePreviousActiveTimetable(safeSchoolId, importBatchId, publishedAt, approvedByName);
+        latestPublishedBatchId = importBatchId;
+        latestBatchId = importBatchId;
+        activePublishedBatchBySchool.put(safeSchoolId, importBatchId);
+        batchSchoolIds.put(importBatchId, safeSchoolId);
+        publishLocks.put(importBatchId, true);
+        updateTimetableImportFileMetadataStatus(importBatchId, "PUBLISHED");
+        materializeActiveTeacherSchedule(safeSchoolId, batch, publishedAt);
+
+        int activeRows = teacherScheduleRepository.countBySchoolIdIgnoreCaseAndActiveTimetableTrue(safeSchoolId);
+        response.setPublishedBatchId(importBatchId);
+        response.setStatus(activeRows > 0 ? "PUBLISHED" : "PUBLISH_BLOCKED");
+        response.setMessage(activeRows > 0
+                ? "Final timetable is published and active. " + activeRows + " periods are visible to Teachers, Students, and Parents."
+                : "Publish failed to activate timetable rows. No rows were written to teacher_schedule.");
+        if (activeRows <= 0) {
+            updateTimetableImportFileMetadataStatus(importBatchId, "PUBLISH_BLOCKED");
+            publishLocks.put(importBatchId, false);
+            activePublishedBatchBySchool.remove(safeSchoolId);
+            return response;
+        }
+
+        addVersion(importBatchId, approvedByName, "PUBLISHED_LOCKED", activeRows, "Imported timetable published and materialized to active teacher schedule.");
+        replaceLifecycleNotification(importBatchId, "ADMIN_PRINCIPAL", "Timetable published active", "Batch " + importBatchId + " is now the active published timetable for this school.");
         addNotification(importBatchId, "TEACHER", "Timetable Published", "Your latest teaching timetable is now available in My Timetable.");
         addNotification(importBatchId, "STUDENT", "Timetable Published", "Your latest class schedule is now available.");
         addNotification(importBatchId, "PARENT", "Timetable Published", "Your child\'s latest timetable is now available.");
