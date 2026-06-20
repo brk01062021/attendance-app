@@ -56,8 +56,16 @@ public class OperationalLookupService {
                 .toList();
     }
 
+    public List<StudentSearchDTO> students(String schoolId, String query, String className, String section) {
+        return studentRepository.searchTenantStudents(
+                normalizeQuery(query),
+                normalizeFilter(className),
+                normalizeFilter(section)
+        );
+    }
+
     public List<StudentSearchDTO> students(String schoolId, String query) {
-        return studentRepository.searchTenantStudents(normalizeQuery(query));
+        return students(schoolId, query, null, null);
     }
 
     public List<TeacherSearchDTO> teachers(String schoolId, String query) {
@@ -66,5 +74,9 @@ public class OperationalLookupService {
 
     private String normalizeQuery(String query) {
         return query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeFilter(String value) {
+        return value == null ? "" : value.trim();
     }
 }

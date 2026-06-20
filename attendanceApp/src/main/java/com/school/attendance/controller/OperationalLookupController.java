@@ -57,9 +57,11 @@ public class OperationalLookupController {
 
     @GetMapping("/students/search")
     public ApiResponse<List<StudentSearchDTO>> students(@RequestParam String schoolId,
-                                                        @RequestParam(required = false, defaultValue = "") String query) {
+                                                        @RequestParam(required = false, defaultValue = "") String query,
+                                                        @RequestParam(required = false, defaultValue = "") String className,
+                                                        @RequestParam(required = false, defaultValue = "") String section) {
         validateSchoolId(schoolId);
-        return ApiResponse.success("Students loaded", lookupService.students(schoolId, query));
+        return ApiResponse.success("Students loaded", lookupService.students(schoolId, query, className, section));
     }
 
     @GetMapping("/teachers/search")

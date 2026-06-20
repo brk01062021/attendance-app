@@ -75,16 +75,22 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
                 s.section
             )
             FROM Student s
-            WHERE :query IS NULL
-               OR :query = ''
-               OR LOWER(s.name) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(COALESCE(s.admissionNumber, '')) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(COALESCE(s.rollNumber, '')) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(COALESCE(s.className, '')) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(COALESCE(s.section, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+            WHERE (:className IS NULL OR :className = '' OR LOWER(s.className) = LOWER(:className))
+              AND (:section IS NULL OR :section = '' OR LOWER(s.section) = LOWER(:section))
+              AND (
+                    :query IS NULL
+                    OR :query = ''
+                    OR LOWER(s.name) LIKE LOWER(CONCAT('%', :query, '%'))
+                    OR LOWER(COALESCE(s.admissionNumber, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+                    OR LOWER(COALESCE(s.rollNumber, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+                    OR LOWER(COALESCE(s.className, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+                    OR LOWER(COALESCE(s.section, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+              )
             ORDER BY s.className ASC, s.section ASC, s.name ASC
             """)
-    List<StudentSearchDTO> searchTenantStudents(@Param("query") String query);
+    List<StudentSearchDTO> searchTenantStudents(@Param("query") String query,
+                                                @Param("className") String className,
+                                                @Param("section") String section);
 
     @Query("""
             SELECT DISTINCT CONCAT(s.className, ' - ', s.section)
