@@ -14,7 +14,20 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
 
     Optional<AppUser> findByUsername(String username);
 
-    Optional<AppUser> findByUsernameAndSchoolCodeIgnoreCase(String username, String schoolCode);
+    default Optional<AppUser> findByUsernameAndSchoolCodeIgnoreCase(String username, String schoolCode) {
+        List<AppUser> matches = findAllByUsernameAndSchoolCodeIgnoreCase(username, schoolCode);
+        return matches.isEmpty() ? Optional.empty() : Optional.of(matches.get(0));
+    }
+
+    @Query("""
+            select u
+            from AppUser u
+            where upper(u.username) = upper(:username)
+              and upper(u.schoolCode) = upper(:schoolCode)
+            order by u.credentialsActive desc, u.id desc
+            """)
+    List<AppUser> findAllByUsernameAndSchoolCodeIgnoreCase(@Param("username") String username,
+                                                           @Param("schoolCode") String schoolCode);
 
     Optional<AppUser> findByTeacherId(Long teacherId);
 

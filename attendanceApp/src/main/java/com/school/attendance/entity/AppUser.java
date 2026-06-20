@@ -31,6 +31,15 @@ public class AppUser {
     @Column(name = "force_password_change", nullable = false)
     private Boolean forcePasswordChange = false;
 
+    @Column(name = "parent_otp_hash")
+    private String parentOtpHash;
+
+    @Column(name = "parent_otp_expires_at")
+    private java.time.LocalDateTime parentOtpExpiresAt;
+
+    @Column(name = "parent_onboarding_verified", nullable = false)
+    private Boolean parentOnboardingVerified = false;
+
     public Long getId() { return id; }
 
     public Long getTeacherId() { return teacherId; }
@@ -86,4 +95,14 @@ public class AppUser {
 
     public Boolean getForcePasswordChange() { return forcePasswordChange == null ? false : forcePasswordChange; }
     public void setForcePasswordChange(Boolean forcePasswordChange) { this.forcePasswordChange = forcePasswordChange == null ? false : forcePasswordChange; }
+
+    public String getParentOtpHash() { return parentOtpHash; }
+    public void setParentOtpHash(String parentOtpHash) { this.parentOtpHash = parentOtpHash; }
+
+    public java.time.LocalDateTime getParentOtpExpiresAt() { return parentOtpExpiresAt; }
+    public void setParentOtpExpiresAt(java.time.LocalDateTime parentOtpExpiresAt) { this.parentOtpExpiresAt = parentOtpExpiresAt; }
+
+    public Boolean getParentOnboardingVerified() { return parentOnboardingVerified == null ? false : parentOnboardingVerified; }
+    public void setParentOnboardingVerified(Boolean parentOnboardingVerified) { this.parentOnboardingVerified = parentOnboardingVerified == null ? false : parentOnboardingVerified; }
 }
+

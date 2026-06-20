@@ -59,8 +59,6 @@ public class UserProvisioningService {
                 provisionTeacher(safeSchoolId, values, credentials);
             } else if ("students".equals(sheet)) {
                 provisionStudent(safeSchoolId, values, credentials);
-            } else if ("parents".equals(sheet)) {
-                provisionParent(safeSchoolId, values, credentials);
             }
         }
 
@@ -80,9 +78,42 @@ public class UserProvisioningService {
                 parentCount,
                 createdCount,
                 updatedCount,
-                "User provisioning completed from the latest committed workbook. Temporary credentials are returned for validation only.",
+                "Teacher and student provisioning completed from the latest committed workbook. Parents are excluded from temporary credentials and must activate using Student ID + parent mobile OTP.",
                 credentials
         );
+    }
+
+    public List<UserProvisioningCredentialDTO> downloadableCredentials(String schoolId, String requestedRole) {
+        String safeSchoolId = TenantUtils.normalizeOrDefault(schoolId);
+        String role = SecurityAccess.normalizeRole(requestedRole);
+        if (!Set.of("TEACHER", "STUDENT").contains(role)) {
+            throw new IllegalArgumentException("Only TEACHER and STUDENT credentials can be downloaded. Parents must activate by OTP.");
+        }
+
+        SchoolImportUpload upload = uploadRepository
+                .findFirstBySchoolCodeIgnoreCaseAndCommittedTrueAndRolledBackFalseOrderByCommittedAtDesc(safeSchoolId)
+                .orElseThrow(() -> new IllegalStateException("Commit a valid school workbook before downloading credentials."));
+
+        List<UserProvisioningCredentialDTO> credentials = new ArrayList<>();
+        for (SchoolImportStagingRecord row : stagingRepository.findByUploadId(upload.getId())) {
+            String sheet = row.getSheetName() == null ? "" : row.getSheetName().trim().toLowerCase(Locale.ROOT);
+            Map<String, String> values = readValues(row.getRowJson());
+            if ("TEACHER".equals(role) && "teachers".equals(sheet)) {
+                String teacherId = firstNonBlank(values, "teacher_id", "teacherid", "id");
+                String teacherName = firstNonBlank(values, "teacher_name", "name", "full_name");
+                if (!teacherId.isBlank() || !teacherName.isBlank()) {
+                    String username = !teacherId.isBlank() ? teacherId.trim() : slug(teacherName);
+                    credentials.add(new UserProvisioningCredentialDTO("TEACHER", username, com.school.attendance.service.WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD, firstNonBlank(teacherName, username), firstNonBlank(teacherId, teacherName), false, false));
+                }
+            } else if ("STUDENT".equals(role) && "students".equals(sheet)) {
+                String admissionNo = firstNonBlank(values, "admission_no", "student_id", "studentid");
+                String studentName = firstNonBlank(values, "student_name", "name", "full_name");
+                if (!admissionNo.isBlank()) {
+                    credentials.add(new UserProvisioningCredentialDTO("STUDENT", admissionNo.trim().toUpperCase(Locale.ROOT), com.school.attendance.service.WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD, firstNonBlank(studentName, admissionNo), admissionNo, false, false));
+                }
+            }
+        }
+        return credentials;
     }
 
     public UserProvisioningResponseDTO summary(String schoolId) {

@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.school.attendance.dto.AuthResponse;
 import com.school.attendance.dto.ChangePasswordRequest;
 import com.school.attendance.dto.LoginRequest;
+import com.school.attendance.dto.ParentActivateRequest;
+import com.school.attendance.dto.ParentOtpRequest;
+import com.school.attendance.dto.ParentOtpResponse;
 import com.school.attendance.dto.RegisterRequest;
 import com.school.attendance.entity.AppUser;
 import com.school.attendance.entity.SchoolImportStagingRecord;
@@ -24,6 +27,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -38,6 +43,8 @@ public class AuthController {
     private final SchoolRegistrationService schoolRegistrationService;
     private final SchoolImportUploadRepository schoolImportUploadRepository;
     private final SchoolImportStagingRecordRepository stagingRecordRepository;
+    private static final SecureRandom OTP_RANDOM = new SecureRandom();
+
     private final ObjectMapper objectMapper;
 
     public AuthController(AppUserRepository userRepository,
@@ -99,6 +106,9 @@ public class AuthController {
         }
 
         if (!Boolean.TRUE.equals(user.getCredentialsActive())) {
+            if ("PARENT".equals(SecurityAccess.normalizeRole(user.getRole()))) {
+                throw new RuntimeException("Parent account is not activated. Please use Student ID + parent mobile OTP setup first.");
+            }
             throw new RuntimeException("Credentials are inactive. Please contact VidyaSetu Onboarding Team for reset/regeneration.");
         }
 
@@ -179,6 +189,103 @@ public class AuthController {
     }
 
 
+    @PostMapping("/parent/request-otp")
+    @Transactional
+    public ParentOtpResponse requestParentOtp(@RequestBody ParentOtpRequest request) {
+        String schoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
+        String studentId = normalizeStudentId(request.getStudentId());
+        String parentMobile = normalizeMobile(request.getParentMobile());
+
+        if (studentId.isBlank() || parentMobile.isBlank()) {
+            throw new RuntimeException("School ID, Student ID and parent mobile number are required.");
+        }
+
+        ParentChildInfo mappedStudent = validateParentStudentMapping(schoolCode, studentId, parentMobile);
+        AppUser parentUser = userRepository.findByUsernameAndSchoolCodeIgnoreCase(parentMobile, schoolCode)
+                .orElseThrow(() -> new RuntimeException("Parent mobile is not provisioned for this school import."));
+
+        if (!"PARENT".equals(SecurityAccess.normalizeRole(parentUser.getRole()))) {
+            throw new RuntimeException("The provided mobile number is not a parent login for this school.");
+        }
+
+        String otp = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
+        parentUser.setParentOtpHash(passwordEncoder.encode(otp));
+        parentUser.setParentOtpExpiresAt(LocalDateTime.now().plusMinutes(10));
+        userRepository.save(parentUser);
+
+        return new ParentOtpResponse(
+                true,
+                "OTP generated for the mapped parent mobile. Verify OTP to create the parent password.",
+                schoolCode,
+                studentId,
+                parentMobile,
+                maskMobile(parentMobile),
+                otp
+        );
+    }
+
+    @PostMapping("/parent/activate")
+    @Transactional
+    public AuthResponse activateParent(@RequestBody ParentActivateRequest request) {
+        String schoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
+        String studentId = normalizeStudentId(request.getStudentId());
+        String parentMobile = normalizeMobile(request.getParentMobile());
+        String otp = request.getOtp() == null ? "" : request.getOtp().trim();
+        String newPassword = request.getNewPassword() == null ? "" : request.getNewPassword().trim();
+
+        if (studentId.isBlank() || parentMobile.isBlank() || otp.isBlank()) {
+            throw new RuntimeException("School ID, Student ID, parent mobile number and OTP are required.");
+        }
+        if (newPassword.length() < 8) {
+            throw new RuntimeException("New password must be at least 8 characters.");
+        }
+
+        validateParentStudentMapping(schoolCode, studentId, parentMobile);
+        AppUser parentUser = userRepository.findByUsernameAndSchoolCodeIgnoreCase(parentMobile, schoolCode)
+                .orElseThrow(() -> new RuntimeException("Parent mobile is not provisioned for this school import."));
+
+        if (!"PARENT".equals(SecurityAccess.normalizeRole(parentUser.getRole()))) {
+            throw new RuntimeException("The provided mobile number is not a parent login for this school.");
+        }
+        if (parentUser.getParentOtpHash() == null || parentUser.getParentOtpExpiresAt() == null) {
+            throw new RuntimeException("Please request a fresh OTP before activating parent login.");
+        }
+        if (parentUser.getParentOtpExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new RuntimeException("OTP expired. Please request a new OTP.");
+        }
+        if (!passwordEncoder.matches(otp, parentUser.getParentOtpHash())) {
+            throw new RuntimeException("Invalid OTP. Please verify and try again.");
+        }
+
+        parentUser.setPassword(passwordEncoder.encode(newPassword));
+        parentUser.setCredentialsActive(true);
+        parentUser.setForcePasswordChange(false);
+        parentUser.setParentOnboardingVerified(true);
+        parentUser.setParentOtpHash(null);
+        parentUser.setParentOtpExpiresAt(null);
+        userRepository.save(parentUser);
+
+        TenantContext.setSchoolId(schoolCode);
+        String token = jwtUtil.generateToken(parentUser.getUsername(), parentUser.getRole(), schoolCode, parentUser.getId());
+        ParentChildInfo parentChildInfo = resolveParentChildInfo(parentUser, schoolCode);
+
+        return new AuthResponse(
+                token,
+                parentUser.getId(),
+                parentUser.getSchoolId(),
+                schoolCode,
+                parentUser.getTeacherId(),
+                parentUser.getTeacherName(),
+                parentChildInfo.studentId(),
+                parentChildInfo.studentName(),
+                parentUser.getDisplayName(),
+                parentUser.getSchoolName(),
+                SecurityAccess.normalizeRole(parentUser.getRole()),
+                false,
+                true
+        );
+    }
+
     private ParentChildInfo resolveParentChildInfo(AppUser user, String schoolCode) {
         String role = SecurityAccess.normalizeRole(user.getRole());
 
@@ -227,6 +334,33 @@ public class AuthController {
                 .orElse(new ParentChildInfo(null, normalizedAdmissionNo));
     }
 
+
+    private ParentChildInfo validateParentStudentMapping(String schoolCode, String studentId, String parentMobile) {
+        Long uploadId = schoolImportUploadRepository
+                .findFirstBySchoolCodeIgnoreCaseAndCommittedTrueAndRolledBackFalseOrderByCommittedAtDesc(schoolCode)
+                .map(SchoolImportUpload::getId)
+                .orElseThrow(() -> new RuntimeException("No committed school import found for this school."));
+
+        List<SchoolImportStagingRecord> rows = stagingRecordRepository.findByUploadId(uploadId);
+        boolean parentMapped = rows.stream()
+                .filter(row -> isSheet(row, "Parents"))
+                .map(this::values)
+                .anyMatch(values -> normalizeMobile(value(values, "mobile")).equals(parentMobile)
+                        && normalizeStudentId(firstNonBlank(value(values, "admission_no"), value(values, "student_id"), value(values, "student_admission_no"))).equals(studentId));
+
+        if (!parentMapped) {
+            throw new RuntimeException("Student ID and parent mobile number do not match the committed school import data.");
+        }
+
+        return rows.stream()
+                .filter(row -> isSheet(row, "Students"))
+                .map(this::values)
+                .filter(values -> normalizeStudentId(firstNonBlank(value(values, "admission_no"), value(values, "student_id"))).equals(studentId))
+                .map(values -> new ParentChildInfo(null, firstNonBlank(value(values, "student_name"), value(values, "name"), studentId)))
+                .findFirst()
+                .orElse(new ParentChildInfo(null, studentId));
+    }
+
     private boolean isSheet(SchoolImportStagingRecord row, String sheetName) {
         return row != null && row.getSheetName() != null && row.getSheetName().equalsIgnoreCase(sheetName);
     }
@@ -258,7 +392,17 @@ public class AuthController {
     }
 
     private String normalizeMobile(String mobile) {
-        return mobile == null ? "" : mobile.replaceAll("\\s+", "").trim();
+        return mobile == null ? "" : mobile.replaceAll("[^0-9+]", "").trim();
+    }
+
+    private String normalizeStudentId(String studentId) {
+        return studentId == null ? "" : studentId.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String maskMobile(String mobile) {
+        String clean = normalizeMobile(mobile);
+        if (clean.length() <= 4) return "****";
+        return "****" + clean.substring(clean.length() - 4);
     }
 
     private record ParentChildInfo(Long studentId, String studentName) {

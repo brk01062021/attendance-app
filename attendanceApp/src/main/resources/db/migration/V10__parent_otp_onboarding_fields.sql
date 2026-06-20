@@ -1,0 +1,3 @@
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS parent_otp_hash VARCHAR(255);
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS parent_otp_expires_at TIMESTAMP;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS parent_onboarding_verified BOOLEAN NOT NULL DEFAULT FALSE;

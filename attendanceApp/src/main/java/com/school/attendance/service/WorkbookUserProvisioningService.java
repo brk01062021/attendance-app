@@ -164,7 +164,7 @@ public class WorkbookUserProvisioningService {
                 ));
         for (Map<String, String> parent : parentsByMobile.values()) {
             String mobile = normalizeMobile(value(parent, "mobile"));
-            putUser(usersByTenantRoleUsername, user(
+            AppUser parentUser = user(
                     mobile,
                     "PARENT",
                     firstNonBlank(value(parent, "parent_name"), mobile),
@@ -172,7 +172,16 @@ public class WorkbookUserProvisioningService {
                     schoolName,
                     null,
                     null
-            ));
+            );
+            // Parents do not receive downloadable temporary credentials. They activate
+            // themselves with Student ID + parent mobile OTP validation from import data.
+            parentUser.setPassword(passwordEncoder.encode(UUID.randomUUID().toString() + System.nanoTime()));
+            parentUser.setCredentialsActive(false);
+            parentUser.setForcePasswordChange(false);
+            parentUser.setParentOnboardingVerified(false);
+            parentUser.setParentOtpHash(null);
+            parentUser.setParentOtpExpiresAt(null);
+            putUser(usersByTenantRoleUsername, parentUser);
         }
 
         appUserRepository.saveAll(usersByTenantRoleUsername.values());
