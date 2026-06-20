@@ -64,4 +64,35 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
             @Param("section") String section,
             @Param("query") String query
     );
+
+    @Query("""
+            SELECT new com.school.attendance.dto.StudentSearchDTO(
+                s.id,
+                s.name,
+                s.admissionNumber,
+                s.rollNumber,
+                s.className,
+                s.section
+            )
+            FROM Student s
+            WHERE :query IS NULL
+               OR :query = ''
+               OR LOWER(s.name) LIKE LOWER(CONCAT('%', :query, '%'))
+               OR LOWER(COALESCE(s.admissionNumber, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+               OR LOWER(COALESCE(s.rollNumber, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+               OR LOWER(COALESCE(s.className, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+               OR LOWER(COALESCE(s.section, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+            ORDER BY s.className ASC, s.section ASC, s.name ASC
+            """)
+    List<StudentSearchDTO> searchTenantStudents(@Param("query") String query);
+
+    @Query("""
+            SELECT DISTINCT CONCAT(s.className, ' - ', s.section)
+            FROM Student s
+            WHERE s.className IS NOT NULL
+              AND s.section IS NOT NULL
+            ORDER BY CONCAT(s.className, ' - ', s.section) ASC
+            """)
+    List<String> findDistinctClassSectionLabels();
+
 }

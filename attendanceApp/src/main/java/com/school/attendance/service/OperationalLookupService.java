@@ -1,6 +1,9 @@
 package com.school.attendance.service;
 
+import com.school.attendance.dto.StudentSearchDTO;
 import com.school.attendance.dto.TeacherSearchDTO;
+import com.school.attendance.repository.StudentRepository;
+import com.school.attendance.repository.TeacherAssignmentRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Year;
@@ -8,16 +11,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Sprint 3 operational lookup service.
- *
- * These lookup APIs are used by the web onboarding/import screens before a school has
- * completed real data import. They must therefore be safe even when DB lookup tables
- * are empty or not yet migrated. Real repository-backed lookups can be reintroduced
- * incrementally after the import commit workflow starts persisting tenant data.
- */
 @Service
 public class OperationalLookupService {
+
+    private final StudentRepository studentRepository;
+    private final TeacherAssignmentRepository teacherAssignmentRepository;
+
+    public OperationalLookupService(StudentRepository studentRepository, TeacherAssignmentRepository teacherAssignmentRepository) {
+        this.studentRepository = studentRepository;
+        this.teacherAssignmentRepository = teacherAssignmentRepository;
+    }
 
     public List<String> academicYears() {
         int current = Year.now().getValue();
@@ -28,48 +31,40 @@ public class OperationalLookupService {
         return years;
     }
 
+    public List<String> months(String schoolId) {
+        return List.of("2026-05", "2026-04", "2026-03");
+    }
+
     public List<String> classes(String schoolId) {
-        List<String> values = new ArrayList<>();
-        for (int i = 1; i <= 10; i++) {
-            values.add("Class " + i);
-        }
-        return values;
+        return studentRepository.findDistinctClassNames().stream()
+                .filter(v -> v != null && !v.isBlank())
+                .toList();
     }
 
     public List<String> sections(String schoolId, String className) {
-        return List.of("A", "B");
+        if (className == null || className.isBlank()) {
+            return studentRepository.findDistinctClassSectionLabels();
+        }
+        return studentRepository.findDistinctSectionsByClassName(className).stream()
+                .filter(v -> v != null && !v.isBlank())
+                .toList();
     }
 
     public List<String> subjects(String schoolId) {
-        return List.of(
-                "English",
-                "Telugu",
-                "Hindi",
-                "Mathematics",
-                "Science",
-                "Social",
-                "Computers",
-                "Sports",
-                "G.K"
-        );
+        return teacherAssignmentRepository.findDistinctSubjects().stream()
+                .filter(v -> v != null && !v.isBlank())
+                .toList();
+    }
+
+    public List<StudentSearchDTO> students(String schoolId, String query) {
+        return studentRepository.searchTenantStudents(normalizeQuery(query));
     }
 
     public List<TeacherSearchDTO> teachers(String schoolId, String query) {
-        List<TeacherSearchDTO> defaults = List.of(
-                new TeacherSearchDTO(1L, "Rakshanda"),
-                new TeacherSearchDTO(2L, "Ramesh"),
-                new TeacherSearchDTO(3L, "Sravani"),
-                new TeacherSearchDTO(4L, "Anil"),
-                new TeacherSearchDTO(5L, "Priya")
-        );
+        return teacherAssignmentRepository.searchTeachers(normalizeQuery(query));
+    }
 
-        String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        if (q.isBlank()) {
-            return defaults;
-        }
-
-        return defaults.stream()
-                .filter(t -> t.getTeacherName() != null && t.getTeacherName().toLowerCase(Locale.ROOT).contains(q))
-                .toList();
+    private String normalizeQuery(String query) {
+        return query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
     }
 }

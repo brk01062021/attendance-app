@@ -112,4 +112,14 @@ public interface TeacherAssignmentRepository extends JpaRepository<TeacherAssign
     List<ReplacementTeacherDTO> findOtherReplacementTeachers(
             Long absentTeacherId
     );
+
+
+    @Query("""
+            SELECT DISTINCT t.subjectName
+            FROM TeacherAssignment t
+            WHERE t.subjectName IS NOT NULL
+            ORDER BY t.subjectName
+            """)
+    List<String> findDistinctSubjects();
+
 }

@@ -1,6 +1,7 @@
 package com.school.attendance.controller;
 
 import com.school.attendance.common.dto.ApiResponse;
+import com.school.attendance.dto.StudentSearchDTO;
 import com.school.attendance.dto.TeacherSearchDTO;
 import com.school.attendance.service.OperationalLookupService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,8 +27,13 @@ public class OperationalLookupController {
 
     @GetMapping("/academic-years")
     public ApiResponse<List<String>> academicYears(@RequestParam(required = false) String schoolId) {
-        // schoolId is accepted for frontend consistency, but academic year defaults are global/safe.
         return ApiResponse.success("Academic years loaded", lookupService.academicYears());
+    }
+
+    @GetMapping("/months")
+    public ApiResponse<List<String>> months(@RequestParam String schoolId) {
+        validateSchoolId(schoolId);
+        return ApiResponse.success("Academic months loaded", lookupService.months(schoolId));
     }
 
     @GetMapping("/classes")
@@ -47,6 +53,13 @@ public class OperationalLookupController {
     public ApiResponse<List<String>> subjects(@RequestParam String schoolId) {
         validateSchoolId(schoolId);
         return ApiResponse.success("Subjects loaded", lookupService.subjects(schoolId));
+    }
+
+    @GetMapping("/students/search")
+    public ApiResponse<List<StudentSearchDTO>> students(@RequestParam String schoolId,
+                                                        @RequestParam(required = false, defaultValue = "") String query) {
+        validateSchoolId(schoolId);
+        return ApiResponse.success("Students loaded", lookupService.students(schoolId, query));
     }
 
     @GetMapping("/teachers/search")
