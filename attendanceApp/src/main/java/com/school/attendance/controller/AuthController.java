@@ -18,6 +18,7 @@ import com.school.attendance.repository.SchoolImportUploadRepository;
 import com.school.attendance.security.JwtUtil;
 import com.school.attendance.security.SecurityAccess;
 import com.school.attendance.service.onboarding.SchoolRegistrationService;
+import com.school.attendance.service.WorkbookUserProvisioningService;
 import com.school.attendance.tenant.TenantContext;
 import com.school.attendance.tenant.TenantUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -90,7 +91,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(@RequestBody LoginRequest request) {
         String requestedSchoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
 
@@ -119,6 +120,14 @@ public class AuthController {
 
         ParentChildInfo parentChildInfo = resolveParentChildInfo(user, schoolCode);
 
+        String normalizedRole = SecurityAccess.normalizeRole(user.getRole());
+        boolean mustChangePassword = Boolean.TRUE.equals(user.getForcePasswordChange())
+                || isWorkbookTemporaryCredentialLogin(user, request.getPassword(), normalizedRole);
+        if (mustChangePassword && !Boolean.TRUE.equals(user.getForcePasswordChange())) {
+            user.setForcePasswordChange(true);
+            userRepository.save(user);
+        }
+
         return new AuthResponse(
                 token,
                 user.getId(),
@@ -130,8 +139,8 @@ public class AuthController {
                 parentChildInfo.studentName(),
                 user.getDisplayName(),
                 user.getSchoolName(),
-                SecurityAccess.normalizeRole(user.getRole()),
-                Boolean.TRUE.equals(user.getForcePasswordChange()),
+                normalizedRole,
+                mustChangePassword,
                 Boolean.TRUE.equals(user.getCredentialsActive())
         );
     }
@@ -284,6 +293,17 @@ public class AuthController {
                 false,
                 true
         );
+    }
+
+    private boolean isWorkbookTemporaryCredentialLogin(AppUser user, String submittedPassword, String normalizedRole) {
+        if (!("TEACHER".equals(normalizedRole) || "STUDENT".equals(normalizedRole))) {
+            return false;
+        }
+        if (submittedPassword == null || submittedPassword.isBlank()) {
+            return false;
+        }
+        return passwordEncoder.matches(WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD, user.getPassword())
+                && WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD.equals(submittedPassword);
     }
 
     private ParentChildInfo resolveParentChildInfo(AppUser user, String schoolCode) {
