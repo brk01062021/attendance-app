@@ -207,10 +207,10 @@ public class AuthController {
     public ParentOtpResponse requestParentOtp(@RequestBody ParentOtpRequest request) {
         String schoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
         String studentId = normalizeStudentId(request.getStudentId());
-        String parentMobile = normalizeMobile(request.getParentMobile());
+        String parentMobile = normalizeParentMobileForIndia(request.getParentMobile());
 
         if (studentId.isBlank() || parentMobile.isBlank()) {
-            throw new RuntimeException("School ID, Student ID and parent mobile number are required.");
+            throw new RuntimeException("School ID, Student ID and registered 10-digit Indian parent mobile number are required. Do not enter the Twilio sender number here.");
         }
 
         ParentChildInfo mappedStudent = validateParentStudentMapping(schoolCode, studentId, parentMobile);
@@ -244,7 +244,7 @@ public class AuthController {
     public AuthResponse activateParent(@RequestBody ParentActivateRequest request) {
         String schoolCode = TenantUtils.normalizeOrDefault(request.getSchoolId());
         String studentId = normalizeStudentId(request.getStudentId());
-        String parentMobile = normalizeMobile(request.getParentMobile());
+        String parentMobile = normalizeParentMobileForIndia(request.getParentMobile());
         String otp = request.getOtp() == null ? "" : request.getOtp().trim();
         String newPassword = request.getNewPassword() == null ? "" : request.getNewPassword().trim();
 
@@ -323,7 +323,7 @@ public class AuthController {
             return ParentChildInfo.empty();
         }
 
-        String parentMobile = normalizeMobile(user.getUsername());
+        String parentMobile = normalizeParentMobileForIndia(user.getUsername());
         if (parentMobile.isBlank()) {
             return ParentChildInfo.empty();
         }
@@ -340,7 +340,7 @@ public class AuthController {
         String admissionNo = rows.stream()
                 .filter(row -> isSheet(row, "Parents"))
                 .map(this::values)
-                .filter(values -> normalizeMobile(value(values, "mobile")).equals(parentMobile))
+                .filter(values -> normalizeParentMobileForIndia(value(values, "mobile")).equals(parentMobile))
                 .map(values -> firstNonBlank(value(values, "admission_no"), value(values, "student_id"), value(values, "student_admission_no")))
                 .filter(value -> !value.isBlank())
                 .findFirst()
@@ -371,7 +371,7 @@ public class AuthController {
         boolean parentMapped = rows.stream()
                 .filter(row -> isSheet(row, "Parents"))
                 .map(this::values)
-                .anyMatch(values -> normalizeMobile(value(values, "mobile")).equals(parentMobile)
+                .anyMatch(values -> normalizeParentMobileForIndia(value(values, "mobile")).equals(parentMobile)
                         && normalizeStudentId(firstNonBlank(value(values, "admission_no"), value(values, "student_id"), value(values, "student_admission_no"))).equals(studentId));
 
         if (!parentMapped) {
@@ -419,6 +419,22 @@ public class AuthController {
 
     private String normalizeMobile(String mobile) {
         return mobile == null ? "" : mobile.replaceAll("[^0-9+]", "").trim();
+    }
+
+    private String normalizeParentMobileForIndia(String mobile) {
+        String digits = mobile == null ? "" : mobile.replaceAll("\\D", "").trim();
+        if (digits.isBlank()) {
+            return "";
+        }
+        if (digits.length() == 12 && digits.startsWith("91")) {
+            digits = digits.substring(2);
+        } else if (digits.length() == 11 && digits.startsWith("0")) {
+            digits = digits.substring(1);
+        }
+        if (digits.length() != 10 || !digits.matches("[6-9]\\d{9}")) {
+            return "";
+        }
+        return digits;
     }
 
     private String normalizeStudentId(String studentId) {
