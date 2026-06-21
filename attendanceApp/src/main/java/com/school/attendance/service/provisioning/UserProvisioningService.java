@@ -83,6 +83,7 @@ public class UserProvisioningService {
         );
     }
 
+    @Transactional(readOnly = true)
     public List<UserProvisioningCredentialDTO> downloadableCredentials(String schoolId, String requestedRole) {
         String safeSchoolId = TenantUtils.normalizeOrDefault(schoolId);
         String role = SecurityAccess.normalizeRole(requestedRole);
@@ -90,19 +91,31 @@ public class UserProvisioningService {
             throw new IllegalArgumentException("Only TEACHER and STUDENT credentials can be downloaded. Parents must activate by OTP.");
         }
 
-        SchoolImportUpload upload = uploadRepository
-                .findFirstBySchoolCodeIgnoreCaseAndCommittedTrueAndRolledBackFalseOrderByCommittedAtDesc(safeSchoolId)
-                .orElseThrow(() -> new IllegalStateException("Commit a valid school workbook before downloading credentials."));
+        List<UserProvisioningCredentialDTO> credentials = loadCredentialsFromCommittedImport(safeSchoolId, role);
+        if (!credentials.isEmpty()) {
+            return credentials;
+        }
+
+        return loadCredentialsFromProvisionedUsers(safeSchoolId, role);
+    }
+
+    private List<UserProvisioningCredentialDTO> loadCredentialsFromCommittedImport(String schoolId, String role) {
+        Optional<SchoolImportUpload> latestUpload = uploadRepository
+                .findFirstBySchoolCodeIgnoreCaseAndCommittedTrueAndRolledBackFalseOrderByCommittedAtDesc(schoolId);
+        if (latestUpload.isEmpty()) {
+            return List.of();
+        }
 
         List<UserProvisioningCredentialDTO> credentials = new ArrayList<>();
-        for (SchoolImportStagingRecord row : stagingRepository.findByUploadId(upload.getId())) {
+        List<SchoolImportStagingRecord> rows = stagingRepository.findByUploadId(latestUpload.get().getId());
+        for (SchoolImportStagingRecord row : rows) {
             String sheet = row.getSheetName() == null ? "" : row.getSheetName().trim().toLowerCase(Locale.ROOT);
             Map<String, String> values = readValues(row.getRowJson());
             if ("TEACHER".equals(role) && "teachers".equals(sheet)) {
                 String teacherId = firstNonBlank(values, "teacher_id", "teacherid", "id");
                 String teacherName = firstNonBlank(values, "teacher_name", "name", "full_name");
                 if (!teacherId.isBlank() || !teacherName.isBlank()) {
-                    String username = !teacherId.isBlank() ? teacherId.trim() : slug(teacherName);
+                    String username = !teacherId.isBlank() ? teacherId.trim().toUpperCase(Locale.ROOT) : slug(teacherName);
                     credentials.add(new UserProvisioningCredentialDTO("TEACHER", username, com.school.attendance.service.WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD, firstNonBlank(teacherName, username), firstNonBlank(teacherId, teacherName), false, false));
                 }
             } else if ("STUDENT".equals(role) && "students".equals(sheet)) {
@@ -115,6 +128,26 @@ public class UserProvisioningService {
         }
         return credentials;
     }
+
+    private List<UserProvisioningCredentialDTO> loadCredentialsFromProvisionedUsers(String schoolId, String role) {
+        String tempPassword = "TEACHER".equals(role)
+                ? com.school.attendance.service.WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD
+                : com.school.attendance.service.WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD;
+        return userRepository.findByRoleIgnoreCaseAndSchoolCodeIgnoreCase(role, schoolId).stream()
+                .filter(user -> Boolean.TRUE.equals(user.getCredentialsActive()))
+                .sorted(Comparator.comparing(user -> firstNonBlank(user.getUsername(), user.getDisplayName()), String.CASE_INSENSITIVE_ORDER))
+                .map(user -> new UserProvisioningCredentialDTO(
+                        role,
+                        user.getUsername(),
+                        tempPassword,
+                        firstNonBlank(user.getDisplayName(), user.getTeacherName(), user.getUsername()),
+                        firstNonBlank(user.getUsername(), user.getDisplayName()),
+                        false,
+                        false
+                ))
+                .toList();
+    }
+
 
     public UserProvisioningResponseDTO summary(String schoolId) {
         String safeSchoolId = TenantUtils.normalizeOrDefault(schoolId);
