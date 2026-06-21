@@ -8,6 +8,7 @@ import com.school.attendance.repository.SchoolImportStagingRecordRepository;
 import com.school.attendance.repository.SchoolImportUploadRepository;
 import com.school.attendance.security.JwtUtil;
 import com.school.attendance.service.onboarding.SchoolRegistrationService;
+import com.school.attendance.service.notification.SmsOtpService;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -28,6 +29,7 @@ class AuthControllerTenantBindingTest {
         SchoolRegistrationService onboarding = mock(SchoolRegistrationService.class);
         SchoolImportUploadRepository schoolImportUploadRepository = mock(SchoolImportUploadRepository.class);
         SchoolImportStagingRecordRepository schoolImportStagingRecordRepository = mock(SchoolImportStagingRecordRepository.class);
+        SmsOtpService smsOtpService = mock(SmsOtpService.class);
         ObjectMapper objectMapper = new ObjectMapper();
         AuthController controller = new AuthController(
                 repository,
@@ -36,6 +38,7 @@ class AuthControllerTenantBindingTest {
                 onboarding,
                 schoolImportUploadRepository,
                 schoolImportStagingRecordRepository,
+                smsOtpService,
                 objectMapper
         );
 
@@ -61,6 +64,7 @@ class AuthControllerTenantBindingTest {
         SchoolRegistrationService onboarding = mock(SchoolRegistrationService.class);
         SchoolImportUploadRepository schoolImportUploadRepository = mock(SchoolImportUploadRepository.class);
         SchoolImportStagingRecordRepository schoolImportStagingRecordRepository = mock(SchoolImportStagingRecordRepository.class);
+        SmsOtpService smsOtpService = mock(SmsOtpService.class);
         ObjectMapper objectMapper = new ObjectMapper();
         AuthController controller = new AuthController(
                 repository,
@@ -69,6 +73,7 @@ class AuthControllerTenantBindingTest {
                 onboarding,
                 schoolImportUploadRepository,
                 schoolImportStagingRecordRepository,
+                smsOtpService,
                 objectMapper
         );
 

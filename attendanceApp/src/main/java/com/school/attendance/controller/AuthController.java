@@ -19,6 +19,7 @@ import com.school.attendance.security.JwtUtil;
 import com.school.attendance.security.SecurityAccess;
 import com.school.attendance.service.onboarding.SchoolRegistrationService;
 import com.school.attendance.service.WorkbookUserProvisioningService;
+import com.school.attendance.service.notification.SmsOtpService;
 import com.school.attendance.tenant.TenantContext;
 import com.school.attendance.tenant.TenantUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -44,6 +45,7 @@ public class AuthController {
     private final SchoolRegistrationService schoolRegistrationService;
     private final SchoolImportUploadRepository schoolImportUploadRepository;
     private final SchoolImportStagingRecordRepository stagingRecordRepository;
+    private final SmsOtpService smsOtpService;
     private static final SecureRandom OTP_RANDOM = new SecureRandom();
 
     private final ObjectMapper objectMapper;
@@ -54,6 +56,7 @@ public class AuthController {
                           SchoolRegistrationService schoolRegistrationService,
                           SchoolImportUploadRepository schoolImportUploadRepository,
                           SchoolImportStagingRecordRepository stagingRecordRepository,
+                          SmsOtpService smsOtpService,
                           ObjectMapper objectMapper) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -61,6 +64,7 @@ public class AuthController {
         this.schoolRegistrationService = schoolRegistrationService;
         this.schoolImportUploadRepository = schoolImportUploadRepository;
         this.stagingRecordRepository = stagingRecordRepository;
+        this.smsOtpService = smsOtpService;
         this.objectMapper = objectMapper;
     }
 
@@ -218,18 +222,20 @@ public class AuthController {
         }
 
         String otp = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
+        smsOtpService.sendParentOtp(parentMobile, otp, schoolCode, studentId);
+
         parentUser.setParentOtpHash(passwordEncoder.encode(otp));
         parentUser.setParentOtpExpiresAt(LocalDateTime.now().plusMinutes(10));
         userRepository.save(parentUser);
 
         return new ParentOtpResponse(
                 true,
-                "OTP generated for the mapped parent mobile. Verify OTP to create the parent password.",
+                "OTP sent to registered parent mobile " + maskMobile(parentMobile) + ". Enter the received OTP to create the parent password.",
                 schoolCode,
                 studentId,
                 parentMobile,
                 maskMobile(parentMobile),
-                otp
+                null
         );
     }
 
