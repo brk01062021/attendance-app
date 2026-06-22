@@ -28,7 +28,11 @@ public class StudentController {
             @RequestParam String className,
             @RequestParam String section) {
 
-        return repository.findByClassNameAndSection(className, section);
+        List<Student> exact = repository.findByClassNameAndSection(className, section);
+        if (!exact.isEmpty()) {
+            return exact;
+        }
+        return repository.findByClassAndSectionFlexible(className, section);
     }
 
     @GetMapping("/classes")

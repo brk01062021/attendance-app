@@ -21,6 +21,19 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
             String section
     );
 
+    @Query("""
+            SELECT s
+            FROM Student s
+            WHERE LOWER(REPLACE(REPLACE(COALESCE(s.className, ''), 'Class ', ''), 'class ', '')) =
+                  LOWER(REPLACE(REPLACE(COALESCE(:className, ''), 'Class ', ''), 'class ', ''))
+              AND LOWER(TRIM(COALESCE(s.section, ''))) = LOWER(TRIM(COALESCE(:section, '')))
+            ORDER BY s.rollNumber ASC, s.name ASC
+            """)
+    List<Student> findByClassAndSectionFlexible(
+            @Param("className") String className,
+            @Param("section") String section
+    );
+
     @Query("SELECT DISTINCT s.className FROM Student s ORDER BY s.className")
     List<String> findDistinctClassNames();
 
