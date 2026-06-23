@@ -77,6 +77,7 @@ public class SmsOtpService {
         StringBuilder url = new StringBuilder("https://control.msg91.com/api/v5/otp")
                 .append("?template_id=").append(encode(msg91TemplateId))
                 .append("&mobile=").append(encode(destination))
+                .append("&authkey=").append(encode(msg91AuthKey))
                 .append("&otp=").append(encode(otp));
 
         if (!msg91SenderId.isBlank()) {
