@@ -210,7 +210,7 @@ public class AuthController {
         String parentMobile = normalizeParentMobileForIndia(request.getParentMobile());
 
         if (studentId.isBlank() || parentMobile.isBlank()) {
-            throw new RuntimeException("School ID, Student ID and registered 10-digit Indian parent mobile number are required. Do not enter the Twilio sender number here.");
+            throw new RuntimeException("School ID, Student ID and registered 10-digit Indian parent mobile number are required.");
         }
 
         ParentChildInfo mappedStudent = validateParentStudentMapping(schoolCode, studentId, parentMobile);
