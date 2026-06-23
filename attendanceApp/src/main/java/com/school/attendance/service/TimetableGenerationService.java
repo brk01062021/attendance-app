@@ -1956,16 +1956,31 @@ public class TimetableGenerationService {
             if (teacherId != null) {
                 filtered = filtered.stream().filter(e -> teacherId.equals(e.getTeacherId())).collect(Collectors.toList());
             } else if (!isBlank(teacherName)) {
-                String safeTeacherName = teacherName.trim();
+                String safeTeacherName = normalizeComparable(teacherName);
                 filtered = filtered.stream()
-                        .filter(e -> !isBlank(e.getTeacherName()) && safeTeacherName.equalsIgnoreCase(e.getTeacherName().trim()))
+                        .filter(e -> !isBlank(e.getTeacherName()) && safeTeacherName.equals(normalizeComparable(e.getTeacherName())))
                         .collect(Collectors.toList());
             }
         } else if (("STUDENT".equals(safeRole) || "PARENT".equals(safeRole)) && !isBlank(className) && !isBlank(section)) {
-            filtered = filtered.stream().filter(e -> className.equalsIgnoreCase(e.getClassName()) && section.equalsIgnoreCase(e.getSection())).collect(Collectors.toList());
+            String safeClass = normalizeClassName(className);
+            String safeSection = normalizeComparable(section);
+            filtered = filtered.stream()
+                    .filter(e -> safeClass.equals(normalizeClassName(e.getClassName())) && safeSection.equals(normalizeComparable(e.getSection())))
+                    .collect(Collectors.toList());
         }
         filtered.sort(Comparator.comparing(TimetableEntryDTO::getDayOfWeek, Comparator.nullsLast(String::compareToIgnoreCase)).thenComparing(TimetableEntryDTO::getPeriodNumber, Comparator.nullsLast(Integer::compareTo)));
         return filtered;
+    }
+
+    private String normalizeComparable(String value) {
+        return value == null ? "" : value.trim().replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeClassName(String value) {
+        String normalized = normalizeComparable(value);
+        normalized = normalized.replaceFirst("^CLASS\\s*", "");
+        normalized = normalized.replaceAll("[^A-Z0-9]", "");
+        return normalized;
     }
 
     private LocalDate scheduleDateForDay(String dayOfWeek) {
