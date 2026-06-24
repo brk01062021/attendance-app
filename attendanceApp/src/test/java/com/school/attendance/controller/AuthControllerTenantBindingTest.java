@@ -6,6 +6,7 @@ import com.school.attendance.entity.AppUser;
 import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.repository.SchoolImportStagingRecordRepository;
 import com.school.attendance.repository.SchoolImportUploadRepository;
+import com.school.attendance.repository.StudentRepository;
 import com.school.attendance.security.JwtUtil;
 import com.school.attendance.service.onboarding.SchoolRegistrationService;
 import com.school.attendance.service.notification.SmsOtpService;
@@ -30,6 +31,7 @@ class AuthControllerTenantBindingTest {
         SchoolImportUploadRepository schoolImportUploadRepository = mock(SchoolImportUploadRepository.class);
         SchoolImportStagingRecordRepository schoolImportStagingRecordRepository = mock(SchoolImportStagingRecordRepository.class);
         SmsOtpService smsOtpService = mock(SmsOtpService.class);
+        StudentRepository studentRepository = mock(StudentRepository.class);
         ObjectMapper objectMapper = new ObjectMapper();
         AuthController controller = new AuthController(
                 repository,
@@ -38,6 +40,7 @@ class AuthControllerTenantBindingTest {
                 onboarding,
                 schoolImportUploadRepository,
                 schoolImportStagingRecordRepository,
+                studentRepository,
                 smsOtpService,
                 objectMapper
         );
@@ -65,6 +68,7 @@ class AuthControllerTenantBindingTest {
         SchoolImportUploadRepository schoolImportUploadRepository = mock(SchoolImportUploadRepository.class);
         SchoolImportStagingRecordRepository schoolImportStagingRecordRepository = mock(SchoolImportStagingRecordRepository.class);
         SmsOtpService smsOtpService = mock(SmsOtpService.class);
+        StudentRepository studentRepository = mock(StudentRepository.class);
         ObjectMapper objectMapper = new ObjectMapper();
         AuthController controller = new AuthController(
                 repository,
@@ -73,6 +77,7 @@ class AuthControllerTenantBindingTest {
                 onboarding,
                 schoolImportUploadRepository,
                 schoolImportStagingRecordRepository,
+                studentRepository,
                 smsOtpService,
                 objectMapper
         );

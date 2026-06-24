@@ -12,9 +12,11 @@ import com.school.attendance.dto.RegisterRequest;
 import com.school.attendance.entity.AppUser;
 import com.school.attendance.entity.SchoolImportStagingRecord;
 import com.school.attendance.entity.SchoolImportUpload;
+import com.school.attendance.entity.Student;
 import com.school.attendance.repository.AppUserRepository;
 import com.school.attendance.repository.SchoolImportStagingRecordRepository;
 import com.school.attendance.repository.SchoolImportUploadRepository;
+import com.school.attendance.repository.StudentRepository;
 import com.school.attendance.security.JwtUtil;
 import com.school.attendance.security.SecurityAccess;
 import com.school.attendance.service.onboarding.SchoolRegistrationService;
@@ -45,6 +47,7 @@ public class AuthController {
     private final SchoolRegistrationService schoolRegistrationService;
     private final SchoolImportUploadRepository schoolImportUploadRepository;
     private final SchoolImportStagingRecordRepository stagingRecordRepository;
+    private final StudentRepository studentRepository;
     private final SmsOtpService smsOtpService;
     private static final SecureRandom OTP_RANDOM = new SecureRandom();
 
@@ -56,6 +59,7 @@ public class AuthController {
                           SchoolRegistrationService schoolRegistrationService,
                           SchoolImportUploadRepository schoolImportUploadRepository,
                           SchoolImportStagingRecordRepository stagingRecordRepository,
+                          StudentRepository studentRepository,
                           SmsOtpService smsOtpService,
                           ObjectMapper objectMapper) {
         this.userRepository = userRepository;
@@ -64,6 +68,7 @@ public class AuthController {
         this.schoolRegistrationService = schoolRegistrationService;
         this.schoolImportUploadRepository = schoolImportUploadRepository;
         this.stagingRecordRepository = stagingRecordRepository;
+        this.studentRepository = studentRepository;
         this.smsOtpService = smsOtpService;
         this.objectMapper = objectMapper;
     }
@@ -122,7 +127,7 @@ public class AuthController {
 
         String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), schoolCode, user.getId());
 
-        ParentChildInfo parentChildInfo = resolveParentChildInfo(user, schoolCode);
+        StudentIdentityInfo studentIdentityInfo = resolveStudentIdentityInfo(user, schoolCode);
 
         String normalizedRole = SecurityAccess.normalizeRole(user.getRole());
         boolean mustChangePassword = Boolean.TRUE.equals(user.getForcePasswordChange())
@@ -139,8 +144,10 @@ public class AuthController {
                 schoolCode,
                 user.getTeacherId(),
                 user.getTeacherName(),
-                parentChildInfo.studentId(),
-                parentChildInfo.studentName(),
+                studentIdentityInfo.studentId(),
+                studentIdentityInfo.studentName(),
+                studentIdentityInfo.className(),
+                studentIdentityInfo.section(),
                 user.getDisplayName(),
                 user.getSchoolName(),
                 normalizedRole,
@@ -182,7 +189,7 @@ public class AuthController {
         TenantContext.setSchoolId(schoolCode);
         String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), schoolCode, user.getId());
 
-        ParentChildInfo parentChildInfo = resolveParentChildInfo(user, schoolCode);
+        StudentIdentityInfo studentIdentityInfo = resolveStudentIdentityInfo(user, schoolCode);
 
         return new AuthResponse(
                 token,
@@ -191,8 +198,10 @@ public class AuthController {
                 schoolCode,
                 user.getTeacherId(),
                 user.getTeacherName(),
-                parentChildInfo.studentId(),
-                parentChildInfo.studentName(),
+                studentIdentityInfo.studentId(),
+                studentIdentityInfo.studentName(),
+                studentIdentityInfo.className(),
+                studentIdentityInfo.section(),
                 user.getDisplayName(),
                 user.getSchoolName(),
                 SecurityAccess.normalizeRole(user.getRole()),
@@ -213,7 +222,7 @@ public class AuthController {
             throw new RuntimeException("School ID, Student ID and registered 10-digit Indian parent mobile number are required.");
         }
 
-        ParentChildInfo mappedStudent = validateParentStudentMapping(schoolCode, studentId, parentMobile);
+        StudentIdentityInfo mappedStudent = validateParentStudentMapping(schoolCode, studentId, parentMobile);
         AppUser parentUser = userRepository.findByUsernameAndSchoolCodeIgnoreCase(parentMobile, schoolCode)
                 .orElseThrow(() -> new RuntimeException("Parent mobile is not provisioned for this school import."));
 
@@ -282,7 +291,7 @@ public class AuthController {
 
         TenantContext.setSchoolId(schoolCode);
         String token = jwtUtil.generateToken(parentUser.getUsername(), parentUser.getRole(), schoolCode, parentUser.getId());
-        ParentChildInfo parentChildInfo = resolveParentChildInfo(parentUser, schoolCode);
+        StudentIdentityInfo studentIdentityInfo = resolveStudentIdentityInfo(parentUser, schoolCode);
 
         return new AuthResponse(
                 token,
@@ -291,8 +300,10 @@ public class AuthController {
                 schoolCode,
                 parentUser.getTeacherId(),
                 parentUser.getTeacherName(),
-                parentChildInfo.studentId(),
-                parentChildInfo.studentName(),
+                studentIdentityInfo.studentId(),
+                studentIdentityInfo.studentName(),
+                studentIdentityInfo.className(),
+                studentIdentityInfo.section(),
                 parentUser.getDisplayName(),
                 parentUser.getSchoolName(),
                 SecurityAccess.normalizeRole(parentUser.getRole()),
@@ -312,30 +323,37 @@ public class AuthController {
                 && WorkbookUserProvisioningService.DEFAULT_TEMP_PASSWORD.equals(submittedPassword);
     }
 
-    private ParentChildInfo resolveParentChildInfo(AppUser user, String schoolCode) {
+    private StudentIdentityInfo resolveStudentIdentityInfo(AppUser user, String schoolCode) {
         String role = SecurityAccess.normalizeRole(user.getRole());
 
         if ("STUDENT".equals(role)) {
-            return new ParentChildInfo(user.getId(), user.getDisplayName());
+            return studentRepository.findFirstByAdmissionNumberIgnoreCase(user.getUsername())
+                    .or(() -> studentRepository.findFirstByRollNumberIgnoreCase(user.getUsername()))
+                    .map(this::studentInfo)
+                    .orElse(new StudentIdentityInfo(user.getId(), user.getDisplayName(), null, null));
         }
 
         if (!"PARENT".equals(role)) {
-            return ParentChildInfo.empty();
+            return StudentIdentityInfo.empty();
         }
 
         String parentMobile = normalizeParentMobileForIndia(user.getUsername());
         if (parentMobile.isBlank()) {
-            return ParentChildInfo.empty();
+            return StudentIdentityInfo.empty();
         }
 
         return schoolImportUploadRepository
                 .findFirstBySchoolCodeIgnoreCaseAndCommittedTrueAndRolledBackFalseOrderByCommittedAtDesc(schoolCode)
                 .map(SchoolImportUpload::getId)
                 .map(uploadId -> resolveParentChildFromStaging(uploadId, parentMobile))
-                .orElse(ParentChildInfo.empty());
+                .orElse(StudentIdentityInfo.empty());
     }
 
-    private ParentChildInfo resolveParentChildFromStaging(Long uploadId, String parentMobile) {
+    private StudentIdentityInfo studentInfo(Student student) {
+        return new StudentIdentityInfo(student.getId(), student.getName(), student.getClassName(), student.getSection());
+    }
+
+    private StudentIdentityInfo resolveParentChildFromStaging(Long uploadId, String parentMobile) {
         List<SchoolImportStagingRecord> rows = stagingRecordRepository.findByUploadId(uploadId);
         String admissionNo = rows.stream()
                 .filter(row -> isSheet(row, "Parents"))
@@ -347,7 +365,7 @@ public class AuthController {
                 .orElse("");
 
         if (admissionNo.isBlank()) {
-            return ParentChildInfo.empty();
+            return StudentIdentityInfo.empty();
         }
 
         String normalizedAdmissionNo = admissionNo.trim().toUpperCase(Locale.ROOT);
@@ -355,13 +373,13 @@ public class AuthController {
                 .filter(row -> isSheet(row, "Students"))
                 .map(this::values)
                 .filter(values -> value(values, "admission_no").trim().equalsIgnoreCase(normalizedAdmissionNo))
-                .map(values -> new ParentChildInfo(null, firstNonBlank(value(values, "student_name"), value(values, "name"), normalizedAdmissionNo)))
+                .map(values -> studentRepository.findFirstByAdmissionNumberIgnoreCase(normalizedAdmissionNo).map(this::studentInfo).orElse(new StudentIdentityInfo(null, firstNonBlank(value(values, "student_name"), value(values, "name"), normalizedAdmissionNo), null, null)))
                 .findFirst()
-                .orElse(new ParentChildInfo(null, normalizedAdmissionNo));
+                .orElse(studentRepository.findFirstByAdmissionNumberIgnoreCase(normalizedAdmissionNo).map(this::studentInfo).orElse(new StudentIdentityInfo(null, normalizedAdmissionNo, null, null)));
     }
 
 
-    private ParentChildInfo validateParentStudentMapping(String schoolCode, String studentId, String parentMobile) {
+    private StudentIdentityInfo validateParentStudentMapping(String schoolCode, String studentId, String parentMobile) {
         Long uploadId = schoolImportUploadRepository
                 .findFirstBySchoolCodeIgnoreCaseAndCommittedTrueAndRolledBackFalseOrderByCommittedAtDesc(schoolCode)
                 .map(SchoolImportUpload::getId)
@@ -382,9 +400,9 @@ public class AuthController {
                 .filter(row -> isSheet(row, "Students"))
                 .map(this::values)
                 .filter(values -> normalizeStudentId(firstNonBlank(value(values, "admission_no"), value(values, "student_id"))).equals(studentId))
-                .map(values -> new ParentChildInfo(null, firstNonBlank(value(values, "student_name"), value(values, "name"), studentId)))
+                .map(values -> studentRepository.findFirstByAdmissionNumberIgnoreCase(studentId).map(this::studentInfo).orElse(new StudentIdentityInfo(null, firstNonBlank(value(values, "student_name"), value(values, "name"), studentId), null, null)))
                 .findFirst()
-                .orElse(new ParentChildInfo(null, studentId));
+                .orElse(new StudentIdentityInfo(null, studentId, null, null));
     }
 
     private boolean isSheet(SchoolImportStagingRecord row, String sheetName) {
@@ -447,9 +465,9 @@ public class AuthController {
         return "****" + clean.substring(clean.length() - 4);
     }
 
-    private record ParentChildInfo(Long studentId, String studentName) {
-        static ParentChildInfo empty() {
-            return new ParentChildInfo(null, null);
+    private record StudentIdentityInfo(Long studentId, String studentName, String className, String section) {
+        static StudentIdentityInfo empty() {
+            return new StudentIdentityInfo(null, null, null, null);
         }
     }
 

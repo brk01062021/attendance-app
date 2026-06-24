@@ -10,6 +10,8 @@ public class AuthResponse {
     private String teacherName;
     private Long studentId;
     private String studentName;
+    private String className;
+    private String section;
     private String displayName;
     private String schoolName;
     private String role;
@@ -63,7 +65,7 @@ public class AuthResponse {
                         String role,
                         boolean forcePasswordChange,
                         boolean credentialsActive) {
-        this(token, userId, schoolId, schoolCode, teacherId, teacherName, null, null, displayName, schoolName, role, forcePasswordChange, credentialsActive);
+        this(token, userId, schoolId, schoolCode, teacherId, teacherName, null, null, null, null, displayName, schoolName, role, forcePasswordChange, credentialsActive);
     }
 
     public AuthResponse(String token,
@@ -74,6 +76,8 @@ public class AuthResponse {
                         String teacherName,
                         Long studentId,
                         String studentName,
+                        String className,
+                        String section,
                         String displayName,
                         String schoolName,
                         String role,
@@ -87,6 +91,8 @@ public class AuthResponse {
         this.teacherName = teacherName;
         this.studentId = studentId;
         this.studentName = studentName;
+        this.className = className;
+        this.section = section;
         this.displayName = displayName;
         this.schoolName = schoolName;
         this.role = role;
@@ -103,6 +109,8 @@ public class AuthResponse {
     public String getTeacherName() { return teacherName; }
     public Long getStudentId() { return studentId; }
     public String getStudentName() { return studentName; }
+    public String getClassName() { return className; }
+    public String getSection() { return section; }
     public String getDisplayName() { return displayName; }
     public String getSchoolName() { return schoolName; }
     public String getRole() { return role; }

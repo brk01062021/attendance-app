@@ -14,9 +14,14 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -38,6 +43,75 @@ public class AttendanceController {
         this.studentRepository = studentRepository;
         this.notificationRepository = notificationRepository;
         this.timetableGenerationService = timetableGenerationService;
+    }
+
+
+
+    @GetMapping("/student-summary")
+    public Map<String, Object> getStudentAttendanceSummary(
+            @RequestParam Long studentId,
+            @RequestParam(required = false) String month
+    ) {
+        List<Attendance> records = attendanceRepository.findByStudentId(studentId).stream()
+                .filter(record -> record.getAttendanceDate() != null && record.getStatus() != null)
+                .sorted(Comparator.comparing(Attendance::getAttendanceDate).reversed())
+                .toList();
+
+        List<YearMonth> months = records.stream()
+                .map(record -> YearMonth.from(record.getAttendanceDate()))
+                .distinct()
+                .sorted(Comparator.reverseOrder())
+                .toList();
+
+        YearMonth selectedMonth = parseMonth(month);
+        if (selectedMonth == null && !months.isEmpty()) {
+            selectedMonth = months.get(0);
+        }
+
+        final YearMonth effectiveSelectedMonth = selectedMonth;
+        List<Attendance> monthRecords = effectiveSelectedMonth == null ? List.of() : records.stream()
+                                                                                     .filter(record -> YearMonth.from(record.getAttendanceDate()).equals(effectiveSelectedMonth))
+                                                                                     .toList();
+
+        long present = monthRecords.stream().filter(record -> record.getStatus() == AttendanceStatus.PRESENT).count();
+        long absent = monthRecords.stream().filter(record -> record.getStatus() == AttendanceStatus.ABSENT).count();
+        long late = monthRecords.stream().filter(record -> record.getStatus() == AttendanceStatus.LATE).count();
+        long total = monthRecords.size();
+        long attended = present + late;
+        long percentage = total == 0 ? 0 : Math.round((attended * 100.0) / total);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("studentId", studentId);
+        response.put("selectedMonth", selectedMonth == null ? null : selectedMonth.toString());
+        response.put("selectedMonthLabel", selectedMonth == null ? "No attendance month" : selectedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH)));
+        response.put("months", months.stream().map(item -> Map.of(
+                "value", item.toString(),
+                "label", item.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH))
+        )).toList());
+        response.put("attendancePercentage", percentage);
+        response.put("presentDays", present);
+        response.put("absentDays", absent);
+        response.put("lateMarks", late);
+        response.put("totalRecords", total);
+        response.put("message", total == 0 ? "No attendance records found for this month." : "Attendance loaded from database.");
+        response.put("recentRecords", monthRecords.stream().limit(10).map(record -> Map.of(
+                "date", record.getAttendanceDate().toString(),
+                "status", record.getStatus().name(),
+                "subjectName", record.getSubjectName() == null ? "" : record.getSubjectName(),
+                "teacherName", record.getTeacherName() == null ? "" : record.getTeacherName()
+        )).toList());
+        return response;
+    }
+
+    private YearMonth parseMonth(String month) {
+        if (month == null || month.isBlank()) {
+            return null;
+        }
+        try {
+            return YearMonth.parse(month.trim());
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     @GetMapping("/active-periods")

@@ -7,8 +7,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface StudentRepository extends JpaRepository<Student, Long> {
+
+    Optional<Student> findFirstByAdmissionNumberIgnoreCase(String admissionNumber);
+
+    Optional<Student> findFirstByRollNumberIgnoreCase(String rollNumber);
 
     List<Student> findByNameAndClassNameAndSection(
             String name,

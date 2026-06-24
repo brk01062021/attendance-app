@@ -22,6 +22,11 @@ import com.school.attendance.dto.TimetableLiveResponseDTO;
 import com.school.attendance.dto.TimetableNotificationDTO;
 import com.school.attendance.dto.TimetableVersionDTO;
 import com.school.attendance.dto.TimetableRolloutReadinessDTO;
+import com.school.attendance.entity.AppUser;
+import com.school.attendance.entity.Student;
+import com.school.attendance.repository.AppUserRepository;
+import com.school.attendance.repository.StudentRepository;
+import com.school.attendance.security.JwtUtil;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.school.attendance.service.TimetableGenerationService;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -44,9 +49,18 @@ import java.util.Map;
 public class TimetableGenerationController {
 
     private final TimetableGenerationService timetableGenerationService;
+    private final JwtUtil jwtUtil;
+    private final AppUserRepository appUserRepository;
+    private final StudentRepository studentRepository;
 
-    public TimetableGenerationController(TimetableGenerationService timetableGenerationService) {
+    public TimetableGenerationController(TimetableGenerationService timetableGenerationService,
+                                         JwtUtil jwtUtil,
+                                         AppUserRepository appUserRepository,
+                                         StudentRepository studentRepository) {
         this.timetableGenerationService = timetableGenerationService;
+        this.jwtUtil = jwtUtil;
+        this.appUserRepository = appUserRepository;
+        this.studentRepository = studentRepository;
     }
 
     @PostMapping("/generate")
@@ -208,9 +222,11 @@ public class TimetableGenerationController {
             @RequestParam(required = false) String batchId,
             @RequestParam(required = false) String className,
             @RequestParam(required = false) String section,
-            @RequestHeader(value = "X-School-Id", required = false) String schoolId
+            @RequestHeader(value = "X-School-Id", required = false) String schoolId,
+            @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        return timetableGenerationService.liveTimetable(batchId, "STUDENT", null, null, className, section, schoolId);
+        StudentTimetableScope scope = resolveStudentTimetableScope(className, section, schoolId, authorization);
+        return timetableGenerationService.liveTimetable(batchId, "STUDENT", null, null, scope.className(), scope.section(), schoolId);
     }
 
     @GetMapping("/live/parent")
@@ -222,6 +238,55 @@ public class TimetableGenerationController {
     ) {
         return timetableGenerationService.liveTimetable(batchId, "PARENT", null, null, className, section, schoolId);
     }
+
+    private StudentTimetableScope resolveStudentTimetableScope(String requestedClassName,
+                                                               String requestedSection,
+                                                               String schoolId,
+                                                               String authorization) {
+        if (!isBlank(requestedClassName) && !isBlank(requestedSection)) {
+            return new StudentTimetableScope(requestedClassName.trim(), requestedSection.trim());
+        }
+
+        String token = bearerToken(authorization);
+        if (isBlank(token)) {
+            return new StudentTimetableScope(requestedClassName, requestedSection);
+        }
+
+        try {
+            String username = jwtUtil.extractUsername(token);
+            String tokenSchoolId = jwtUtil.extractSchoolId(token);
+            String effectiveSchoolId = isBlank(schoolId) ? tokenSchoolId : schoolId;
+            return appUserRepository.findByUsernameAndSchoolCodeIgnoreCase(username, effectiveSchoolId)
+                    .filter(user -> "STUDENT".equalsIgnoreCase(user.getRole()))
+                    .flatMap(this::findStudentForUser)
+                    .map(student -> new StudentTimetableScope(student.getClassName(), student.getSection()))
+                    .orElse(new StudentTimetableScope(requestedClassName, requestedSection));
+        } catch (Exception ignored) {
+            return new StudentTimetableScope(requestedClassName, requestedSection);
+        }
+    }
+
+    private java.util.Optional<Student> findStudentForUser(AppUser user) {
+        if (user == null || isBlank(user.getUsername())) {
+            return java.util.Optional.empty();
+        }
+        return studentRepository.findFirstByAdmissionNumberIgnoreCase(user.getUsername())
+                .or(() -> studentRepository.findFirstByRollNumberIgnoreCase(user.getUsername()));
+    }
+
+    private String bearerToken(String authorization) {
+        if (isBlank(authorization)) {
+            return "";
+        }
+        String value = authorization.trim();
+        return value.regionMatches(true, 0, "Bearer ", 0, 7) ? value.substring(7).trim() : value;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private record StudentTimetableScope(String className, String section) { }
 
     @PostMapping({"/operations/publish/{batchId}", "/visibility/publish/{batchId}"})
     public TimetablePublishResponseDTO publishOperationsPath(
