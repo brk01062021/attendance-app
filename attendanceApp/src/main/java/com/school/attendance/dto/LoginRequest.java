@@ -5,6 +5,7 @@ public class LoginRequest {
     private String username;
     private String password;
     private String schoolId; // external 4-char tenant id from login screen
+    private String role; // explicitly selected login role
 
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
@@ -14,4 +15,7 @@ public class LoginRequest {
 
     public String getSchoolId() { return schoolId; }
     public void setSchoolId(String schoolId) { this.schoolId = schoolId; }
+
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
 }
