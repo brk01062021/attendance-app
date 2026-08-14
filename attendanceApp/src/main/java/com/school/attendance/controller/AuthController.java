@@ -109,16 +109,16 @@ public class AuthController {
         }
 
         AppUser user = userRepository.findByUsernameAndSchoolCodeIgnoreCase(request.getUsername(), requestedSchoolCode)
-                .orElseThrow(() -> new RuntimeException("Invalid username, password, role, or school ID"));
+                .orElseThrow(() -> new RuntimeException("Invalid username, password, or school ID"));
 
         String requestedRole = SecurityAccess.normalizeRole(request.getRole());
         String actualRole = SecurityAccess.normalizeRole(user.getRole());
         if (request.getRole() == null || request.getRole().isBlank() || !requestedRole.equals(actualRole)) {
-            throw new RuntimeException("Invalid username, password, role, or school ID");
+            throw new RuntimeException("Invalid username, password, or school ID");
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new RuntimeException("Invalid username, password, role, or school ID");
+            throw new RuntimeException("Invalid username, password, or school ID");
         }
 
         if (!Boolean.TRUE.equals(user.getCredentialsActive())) {

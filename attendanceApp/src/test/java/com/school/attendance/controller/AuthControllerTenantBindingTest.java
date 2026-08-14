@@ -49,6 +49,7 @@ class AuthControllerTenantBindingTest {
         request.setUsername("brk1.admin");
         request.setPassword("password");
         request.setSchoolId("TST2");
+        request.setRole("ADMIN");
 
         when(onboarding.isLoginEnabledForSchoolId("TST2")).thenReturn(true);
         when(repository.findByUsernameAndSchoolCodeIgnoreCase("brk1.admin", "TST2")).thenReturn(Optional.empty());
@@ -96,6 +97,7 @@ class AuthControllerTenantBindingTest {
         request.setUsername("tst2.admin");
         request.setPassword("password");
         request.setSchoolId("TST2");
+        request.setRole("ADMIN");
 
         when(onboarding.isLoginEnabledForSchoolId("TST2")).thenReturn(true);
         when(repository.findByUsernameAndSchoolCodeIgnoreCase("tst2.admin", "TST2")).thenReturn(Optional.of(user));
